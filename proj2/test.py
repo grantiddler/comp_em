@@ -35,7 +35,6 @@ for j in range(frames):
 fig = plt.figure()
 ax = fig.add_subplot(111)
 
-# I like to position my colorbars this way, but you don't have to
 div = make_axes_locatable(ax)
 cax = div.append_axes('right', '5%', '5%')
 
