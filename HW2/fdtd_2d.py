@@ -6,11 +6,11 @@ from matplotlib.animation import FuncAnimation
 
 class FDTD_2D:
     def __init__(self, x0, x1, dx, y0, y1, dy, time_oversample = 1.5, forcing_type=[], forcing_function=[]):
-        self.permittivity = 8.8541878188e-12
+        self.epsilon_0 = 8.8541878188e-12
         self.permeability = 1.25663706127e-6
         self.conductivity = 0
 
-        self.c = 1 / np.sqrt(self.permittivity * self.permeability)
+        self.c = 1 / np.sqrt(self.epsilon_0 * self.permeability)
 
         self.x0 = x0
         self.x1 = x1
@@ -34,6 +34,13 @@ class FDTD_2D:
         self.H_y = np.zeros([self.nx - 1, self.ny]) # H is offset -1/2 of an index from E in each direction
         self.H_x = np.zeros([self.nx, self.ny - 1]) # H is offset -1/2 of an index from E in each direction
 
+        self.epsilon_r = np.ones([self.nx, self.ny]) 
+        self.conductivity = np.zeros([self.nx, self.ny]) 
+
+        self.epsilon_r[0:int(self.nx/ 3), :] = 3
+
+        self.permittivity = self.epsilon_0 * self.epsilon_r
+
         self.E_last = self.E
         self.H_x = self.H_x
         self.H_y = self.H_y
@@ -46,8 +53,9 @@ class FDTD_2D:
         self.diff_coeff_x = self.dt / (self.permeability * self.dy)
         self.diff_coeff_y = self.dt / (self.permeability * self.dx)
 
-        self.alpha = 1
-        self.beta = 1
+        self.alpha = self.permittivity / self.dt - self.conductivity / 2
+        self.beta = self.permittivity / self.dt + self.conductivity / 2
+
 
 
     def update(self):
@@ -81,11 +89,13 @@ class FDTD_2D:
         H_x_plus[:, 0:-1] = self.H_x
         H_x_minus[:, 1:] = self.H_x
 
-        self.E = self.alpha * self.E + (H_y_plus - H_y_minus) / self.dx - (H_x_plus - H_x_minus) / self.dy
+        self.E = (self.alpha * self.E + (H_y_plus - H_y_minus) / self.dx - (H_x_plus - H_x_minus) / self.dy)
 
+        # E Boundary conditions
 
-        self.E[int(self.nx / 2), int(self.nx / 2)] -=  self.source_profile((self.t + 0.5) * self.dt, 10, 1e7)
+        self.E[int(self.nx / 2), int(self.nx / 2)] -= self.source_profile((self.t + 0.5) * self.dt, 200, 1e7)
         
+        self.E /= self.beta
         # self.E[:, int(self.ny / 3)] = 0
 
         self.t += 1
