@@ -37,9 +37,8 @@ class FDTD_2D:
         self.epsilon_r = np.ones([self.nx, self.ny]) 
         self.conductivity = np.zeros([self.nx, self.ny]) 
 
-        self.epsilon_r[0:int(self.nx/ 3), :] = 3
+        # self.epsilon_r[0:int(self.nx/ 3), :] = 4
 
-        self.permittivity = self.epsilon_0 * self.epsilon_r
 
         self.E_last = self.E
         self.H_x = self.H_x
@@ -49,9 +48,17 @@ class FDTD_2D:
         self.sz_H_x = np.shape(self.H_x)
         self.sz_H_y = np.shape(self.H_y)
 
+        self.x =  np.arange(x0, x1 + self.dx, self.dx) * np.ones([self.ny, 1])
+        self.y =  np.transpose(np.transpose(np.arange(y0, y1 + self.dy, self.dy)) * np.ones([self.nx, 1]))
+
 
         self.diff_coeff_x = self.dt / (self.permeability * self.dy)
         self.diff_coeff_y = self.dt / (self.permeability * self.dx)
+
+        self.epsilon_r += 8 * (np.sqrt(np.pow(self.x - .125,2) + np.pow(self.y - .2,2)) < 0.0075)
+        self.PEC_mask = (np.sqrt(np.pow(self.x - .125,2) + np.pow(self.y - .055,2)) < 0.0075)
+        self.permittivity = self.epsilon_0 * self.epsilon_r
+        
 
         self.alpha = self.permittivity / self.dt - self.conductivity / 2
         self.beta = self.permittivity / self.dt + self.conductivity / 2
@@ -70,7 +77,7 @@ class FDTD_2D:
         # E_xp[0:-1,:] = self.E
         # E_xm[1:,:] = self.E
 
-        # print(E_down)
+        # print(E_down)F
         # print(E_up)
         # print(E_left)
         # print(E_right)
@@ -89,20 +96,132 @@ class FDTD_2D:
         H_x_plus[:, 0:-1] = self.H_x
         H_x_minus[:, 1:] = self.H_x
 
-        self.E = (self.alpha * self.E + (H_y_plus - H_y_minus) / self.dx - (H_x_plus - H_x_minus) / self.dy)
+        self.E_next = (self.alpha * self.E + (H_y_plus - H_y_minus) / self.dx - (H_x_plus - H_x_minus) / self.dy)
 
         # E Boundary conditions
 
-        self.E[int(self.nx / 2), int(self.nx / 2)] -= self.source_profile((self.t + 0.5) * self.dt, 200, 1e7)
+        self.E_next[int(self.nx / 2), int(self.nx / 2)] -= self.source_profile((self.t + 0.5) * self.dt, 10, 4e10) / (self.dx * self.dy * 1000) 
+        # self.E_next -= self.plane_wave((self.t + 0.5) * self.dt,0 , 5e8)
+        self.E_next /= self.beta
         
-        self.E /= self.beta
+
+
+
+
+
+        self.ABC(25, -1, "x")
+        self.ABC(self.nx - 25, 1, "x")
+        self.ABC(25, -1, "y")
+        self.ABC(self.ny - 25, 1, "y")
+        # self.ABC(25, -1, "y")
+        # self.ABC(475, 1, "y")
+
+        self.E_last = self.E
+        self.E = self.E_next
+
+        # self.E -= self.E * self.PEC_mask
+
+        # self.plane_wave(self.t * self.dt, np.pi/3, 1e8)
+        # plt.imshow(self.plane_wave(self.t * self.dt, 0, 1e8))
+        # plt.show()
+        
+
+
         # self.E[:, int(self.ny / 3)] = 0
 
         self.t += 1
 
+
+    def ABC(self, M, d, ax):
+
+        
+        if(ax == "x"):
+
+            self.E_next[M, :] = self.E[M-d, :] + (self.E[M, :] - self.E_next[M-d, :]) * (self.dx - self.c * self.dt) / (self.dx + self.c * self.dt)
+            self.E_next[M+d,:] = 0 #self.E[-2,:]
+
+        if(ax == "y"):
+
+            self.E_next[:,M] = self.E[:,M-d] + (self.E[:,M] - self.E_next[:,M-d]) * (self.dx - self.c * self.dt) / (self.dx + self.c * self.dt)
+            self.E_next[:,M+d] = 0 #self.E[-2,:]
+
+
+
+        # B = 1
+        # self.E_next[M,1:-1] += ((self.E_next[M - B,1:-1] - self.E[M - B,1:-1]) / (self.dx * self.dt))
+        # self.E_next[M,1:-1] += (self.E[M,1:-1] * ((1/(self.dx * self.dt)) + (2/(self.c * np.pow(self.dt, 2))) - (self.c/(np.pow(self.dy, 2)))))
+        # self.E_next[M,1:-1] -= (self.E_last[M,1:-1]/(self.c * (np.pow(self.dt, 2)))) 
+        # self.E_next[M,1:-1] += (self.c/(2* np.pow(self.dy, 2))) * (self.E[M,0:-2] - self.E[M,2:])
+        # self.E_next[M,1:-1] /= ((1/(self.dx * self.dt)) + (1/(self.c * np.pow(self.dy, 2))))
+        # self.E_next[A,:] = .1
+        
+        
+        # self.E_next[:,0] = 0 #self.E[-2,:]
+        # self.E_next[:,-1] = 0 #self.E[-2,:]
+
     def source_profile(self, t, omega, scale):
         # return 1 - np.exp(-t * scale)
-        return (1 - np.exp(- scale * t)) * np.cos(t * omega * scale) * np.exp(- np.pow( t * scale - 3, 2))
+        
+        return (1 - np.exp(- scale * t)) * np.sin(t * omega * scale) * np.exp(- np.pow( t * scale - 3, 2)) / 5
+
+    def source_profile2(self, t, a, b):
+   
+        return (t > 0) * np.sin(t * 1e11) * (1 - np.exp( - t * 1e8)) / 5
+
+
+    def plane_wave(self, t, angle, frequency):
+        x0 = 100
+        x1 = 400
+        y0 = 100
+        y1 = 400
+
+        k = frequency / self.c
+        kx = np.cos(angle)
+        ky = np.sin(angle)
+
+        
+        J = np.zeros(self.sz_E)
+
+        J[x0:x1, y0] = np.sin(t * frequency)
+        J[x0:x1, y1] = np.sin(t * frequency + k * (y1 - y0) * self.dy )
+
+        y = np.arange(y0, y1, 1)
+        x = np.arange(x0, x1, 1)
+
+        # J[x0, y0:y1] = np.sin(t * frequency + k * y * self.dy )
+        # J[x1, y0:y1] = np.sin(t * frequency + k * y * self.dy )
+
+        # plt.imshow(J)
+        # plt.show()
+        
+        # self.E[x0:x1, y0] = self.source_profile(t * frequency + kx * y0 * self.dy + ky * x * self.dx, 5, 1e8)
+        # self.E[x0:x1, y1] = self.source_profile(t * frequency + kx * y1 * self.dy + ky * x * self.dx, 5, 1e8)
+        # self.E[x0, y0:y1] = self.source_profile(t * frequency + kx * y * self.dy + ky * x0 * self.dx, 5, 1e8)
+        # self.E[x1, y0:y1] = self.source_profile(t * frequency + kx * y * self.dy + ky * x1 * self.dx, 5, 1e8)
+
+        # self.E[x0:x1, y0:y1] = 0
+
+        self.E[x0:x1, y0] = self.source_profile(t - (y0 * ky * self.dy + x * kx * self.dy) / self.c, 4, 1e8)
+        self.E[x0:x1, y1] = self.source_profile(t - (y1 * ky * self.dy + x * kx * self.dy) / self.c, 4, 1e8)
+        self.E[x0, y0:y1] = self.source_profile(t - (y * ky * self.dy + x0 * kx * self.dy) / self.c, 4, 1e8)
+        self.E[x1, y0:y1] = self.source_profile(t - (y * ky * self.dy + x1 * kx * self.dy) / self.c, 4, 1e8)
+
+        # plt.imshow(self.E)
+
+        # plt.show()
+        # plt.imshow(self.E)
+
+        # plt.show()
+
+        # plt.imshow(self.E)
+# 
+        # return J * (1 - np.exp(-1e6 * t)) * .01
+
+
+
+
+        
+
 
 
 # sim = FDTD_2D(0, 50, 1e-1, 0, 50, 1e-1)
