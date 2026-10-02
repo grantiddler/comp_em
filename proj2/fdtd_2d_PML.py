@@ -1,17 +1,42 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from scipy.special import jv
+from scipy.special import hankel2
+from scipy.special import jvp
+from scipy.special import h2vp
+from matplotlib.patches import Circle, Rectangle
 
 
 
 class FDTD_2D:
-    def __init__(self, x0, x1, dx, y0, y1, dy, time_oversample = 1.5, pml_cells = 10, sigma_max = 0.07, p = 3, forcing_type=[], forcing_function=[]):
+    def __init__(self, scatterer, x0, x1, dx, y0, y1, dy, time_oversample = 1.5, pml_cells = 10, sigma_max = 0.07, p = 3, forcing_type=[], forcing_function=[]):
+        self.scatterer = scatterer
         self.epsilon_0 = 8.8541878188e-12
         self.permeability = 1.25663706127e-6
         self.conductivity = 0
-        self.probe_history = []
-
         self.c = 1 / np.sqrt(self.epsilon_0 * self.permeability)
+        self.probe_history = [] #probe test
+        self.E0 = 1
+
+
+        #----Cylinder Variables----#
+        self.f0 =  10 * 10**9
+        self.a = 0.015 # cylinder radius in m
+        self.epsilon_rc = 9 # e_r of cylinder
+        self.lamda0 = self.c/self.f0
+        self.k0 = (2 * np.pi) / self.lamda0
+        self.kd = self.k0 * np.sqrt(self.epsilon_rc)
+
+
+        self.phi = np.linspace(0, 2*np.pi, 361)
+        n = np.arange(-50, 51) # 50 azimuthal harmonics
+
+
+        self.nphi = np.outer(n, self.phi)
+
+        # dielectric A_n
+        
 
         self.x0 = x0
         self.x1 = x1
@@ -21,15 +46,29 @@ class FDTD_2D:
         self.y1 = y1
         self.dy = dy
 
+
+        #cylcinder center
+        self.xc = self.x0+(self.x1-self.x0)/2
+        self.yc = self.y0+(self.y1-self.y0)/2
+
         self.dt = 1 / (time_oversample * self.c * np.sqrt((1/ np.pow(dx, 2)) + (1/ np.pow(dy, 2))))
 
-        self.t = 0 #
+        self.t = 0 
 
         self.f_type = forcing_type
         self.f_func = forcing_function
         
         self.nx = 1 + int((x1 - x0) / dx) #sets grid points for x
         self.ny = 1 + int((y1 - y0) / dy) #sets grid points for y
+
+        self.x = np.linspace(x0, x1, self.nx)# 1D x cord array
+        self.y = np.linspace(y0, y1, self.ny)# 1D y cord array
+
+        self.X, self.Y = np.meshgrid(self.x, self.y, indexing='ij') #arrays with shape (nx, ny)
+
+        self.rho = np.sqrt((self.X-self.xc)**2+(self.Y-self.yc)**2) # the distance of each grid point from the cylinder center
+
+        self.pec_mask = self.rho <= self.a 
 
         self.pml_cells = pml_cells #variable for outer cell thickness of pml
 
@@ -53,6 +92,46 @@ class FDTD_2D:
 
             self.sigma_y[:, i] = sigma #bottom y cells
             self.sigma_y[:, -i-1] = sigma #top y cells
+
+        #spacial angle for 2D
+        self.phi_grid = np.arctan2(self.Y-self.yc, self.X-self.xc) 
+
+        # masks for rho<a and rho>=a for when inside and outside the cylinder
+        outside = self.rho >= self.a
+        inside = self.rho < self.a
+        
+        #incident feild everywhere
+        self.E_i = self.E0*np.exp(-1j*self.k0*self.X) 
+
+        # Create empty scattered-field array
+        self.E_s = np.zeros_like(self.E_i, dtype=complex)
+
+        # Harmonic index for masked 1-D spatial arrays
+        n_col = n[:, None]
+
+        if self.scatterer == 'PEC':
+            self.A_n = jv(n, self.k0*self.a)/hankel2(n, self.k0*self.a) #PEC A_n
+            self.E_s[inside] = -self.E_i[inside] # E tot will become 0 inside PEC
+        elif self.scatterer == 'dielectric':
+            self.A_n = ((jvp(n, self.k0*self.a)*jv(n, self.kd*self.a)) - (np.sqrt(self.epsilon_rc)*jv(n, self.k0*self.a)*jvp(n, self.kd*self.a))
+                                ) / ((h2vp(n, self.k0*self.a)*jv(n, self.kd*self.a))- (np.sqrt(self.epsilon_rc)*hankel2(n, self.k0*self.a)*jvp(n, self.kd*self.a))) 
+        else:
+            print('Invalid Input')
+            return
+            
+        self.sigma_2D = 4/self.k0 * np.abs(np.sum(self.A_n[:, None] * np.exp(1j*self.nphi), axis = 0))**2 # axis = 0 gives same number of elements as self.phi
+
+
+        # Scattered feild
+        self.E_s[outside] = -self.E0*(np.sum((-1j)**n_col * self.A_n[:, None] * hankel2(n_col, self.k0*self.rho[outside])*np.exp(1j*n_col*self.phi_grid[outside]), axis=0)) #scattering wave
+
+
+
+
+
+        self.E_tot = self.E_i +self.E_s
+
+
 
         self.E = np.zeros([self.nx, self.ny]) 
         self.E_zx = np.zeros([self.nx, self.ny])
@@ -87,7 +166,7 @@ class FDTD_2D:
         self.B_Ex = (self.dt / (self.permittivity)
                      ) / (1 + self.sigma_x * self.dt / (2*self.permittivity)) 
 
-        #Y vairbales for E
+        #Y variables for E
         self.A_Ey = (1- self.sigma_y * self.dt / (2*self.permittivity)
                      ) / (1 + self.sigma_y * self.dt / (2*self.permittivity)) 
 
@@ -128,6 +207,13 @@ class FDTD_2D:
         # print("A_Ey shape:  ", self.A_Ey.shape)
         # print("B_Ey shape:  ", self.B_Ey.shape)
 
+        # phi_deg = np.degrees(self.phi)
+
+        # plt.plot(phi_deg, self.sigma_2D)
+        # plt.xlabel("Observation Angle φ (degrees)")
+        # plt.ylabel("Echo Width σ₂D (m)")
+        # plt.grid()
+        # plt.show()
 
     def update(self):
         # E_yp = np.zeros([self.nx, self.ny + 1])
@@ -163,25 +249,36 @@ class FDTD_2D:
         self.E_zx = (self.A_Ex * self.E_zx + self.B_Ex * ( H_y_plus -  H_y_minus) / self.dx)
         self.E_zy = (self.A_Ey * self.E_zy - self.B_Ey * ( H_x_plus -  H_x_minus) / self.dy)
 
-        # test source
+        #test source
         source = self.source_profile(
             (self.t + 0.5) * self.dt
         )
 
-        ix = int(self.nx / 2)
+        ix = int(self.nx / 4)
         iy = int(self.ny / 2)
 
         self.E_zx[ix, iy] -= 0.5 * source
         self.E_zy[ix, iy] -= 0.5 * source
 
+        if self.scatterer == 'PEC':
+            #enforces boundary condition of cylinder for PEC
+            self.E_zx[self.pec_mask] = 0
+            self.E_zy[self.pec_mask] = 0
+        elif self.scatterer == 'dielectric':
+            return
+        else:
+            print('not valid input')
+
         self.E = self.E_zx +self.E_zy # combine split feilds
+
+
 
         self.t += 1
 
     def source_profile(self, t):
-        f0 = 3e8       # 300 MHz
-        t0 = 3e-9      # pulse centered at 3 ns
-        tau = 1e-9     # pulse width
+        f0 = self.f0       # 300 MHz
+        t0 = 0.5e-9      # pulse centered at 3 ns
+        tau = 0.15e-9     # pulse width
 
         return (
             np.sin(2 * np.pi * f0 * t)
@@ -191,19 +288,41 @@ class FDTD_2D:
 
 
 
-sim = FDTD_2D(0, 5, 0.1, 0, 5, 0.1, pml_cells=10, sigma_max=0.07)
+sim = FDTD_2D('PEC', 0, 0.5, 0.003, 0, 0.5, 0.003, pml_cells=10, sigma_max=1)
 
 fig, ax = plt.subplots()
 
 im = ax.imshow(
     sim.E.T,
     origin="lower",
-    cmap=plt.colormaps["PuOr"],
+    cmap=plt.colormaps["RdBu_r"],
     vmin=-0.25,
     vmax=0.25,
     animated=True,
     interpolation="bilinear"
 )
+
+pec_circle = Circle(
+    (sim.nx/2, sim.ny/2),
+    sim.a/sim.dx,
+    fill=False,
+    edgecolor='black',
+    linewidth=1
+)
+ax.add_patch(pec_circle)
+
+pml_rect = Rectangle(
+    (sim.pml_cells, sim.pml_cells),
+    sim.nx - 2*sim.pml_cells,
+    sim.ny - 2*sim.pml_cells,
+    fill=False,
+    edgecolor='black',
+    linestyle='--',
+    linewidth=1.5
+)
+
+ax.add_patch(pml_rect)
+
 
 plt.colorbar(im, ax=ax)
 
@@ -217,13 +336,13 @@ def animate(frame):
         sim.probe_history.append(sim.E[probe_x, probe_y])
 
     im.set_array(sim.E.T)
-    return im,
+    return im, pec_circle, pml_rect
 
 ani = FuncAnimation(
     fig,
     animate,
     frames=500,
-    interval=30,
+    interval=10,
     blit=True
 )
 
