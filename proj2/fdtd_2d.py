@@ -70,14 +70,14 @@ class FDTD_2D:
         self.beta = self.permittivity / self.dt + self.conductivity / 2
 
         # scattering stuff
-        self.huygens_x0 = 100
-        self.huygens_x1 = self.nx - 100
-        self.huygens_y0 = 100
-        self.huygens_y1 = self.ny - 100
+        self.huygens_x0 = 250
+        self.huygens_x1 = self.nx - 250
+        self.huygens_y0 = 250
+        self.huygens_y1 = self.ny - 250
 
         self.wave_origin_x = 0
         self.wave_origin_y = 0
-        self.angle = 0
+        self.angle = np.pi/3
 
 
 
@@ -125,6 +125,7 @@ class FDTD_2D:
 
 
         self.plane_wave_pt2(self.t * self.dt, self.angle, 1e8)
+
         # E Boundary conditions
 
         # self.E_next[int(self.nx / 2), int(self.nx / 2)] -= self.source_profile2((self.t + 0.5) * self.dt, 10, 4e10) / (self.dx * self.dy * 1000) 
@@ -171,11 +172,12 @@ class FDTD_2D:
 
     def source_profile(self, t, omega, scale):
         # return 1 - np.exp(-t * scale)
-        
+        omega = 10
+        scale = 1e10
         return (t > 0) * (1 - np.exp(- scale * t)) * np.cos(t * omega * scale) * np.exp(- np.pow( t * scale - 3, 2)) / 5
 
     def source_profile2(self, t, a, b):
-   
+
         return (t > 0) * np.sin(t * 1e11) * (1 - np.exp( - t * 1e8)) / 5
 
 
@@ -194,18 +196,16 @@ class FDTD_2D:
 
         # [x0, y0:y1]
 
-        E_inc = self.source_profile(t - ((y - self.wave_origin_y) * ky + (x0 * self.dx - self.wave_origin_x) * kx) / self.c, 10, 1e10)
-        self.H_x_next[x0, y0:y1] = self.H_x[x0, y0:y1] + self.diff_coeff_x * ((self.E[x0, y0:y1] - E_inc[0:-1]) - (self.E[x0, y0+1:y1+1] - E_inc[1:]))
-        self.H_y_next[x0, y0:y1] = self.H_y[x0, y0:y1] - self.diff_coeff_y * ((self.E[x0, y0:y1] - E_inc[0:-1]) - self.E[x0 + 1, y0:y1])
+
+        E_inc = self.source_profile(t - ((y - self.wave_origin_y) * ky + (x0 * self.dx - self.wave_origin_x) * kx) / self.c, 0, 1e10)
+        self.H_x_next[x0 - 1, y0:y1] = self.H_x[x0 - 1, y0:y1] + self.diff_coeff_x * ((self.E[x0 - 1, y0:y1] - E_inc[0:-1]) - (self.E[x0 - 1, y0+1:y1+1] - E_inc[1:]))
+        self.H_y_next[x0 - 1, y0:y1] = self.H_y[x0 - 1, y0:y1] - self.diff_coeff_y * ((self.E[x0 - 1, y0:y1] - E_inc[0:-1]) - self.E[x0, y0:y1])
 
 
-        # [x1, y0:y1]
         E_inc = self.source_profile(t - ((y - self.wave_origin_y) * ky + (x1 * self.dx - self.wave_origin_x) * kx) / self.c, 10, 1e10)
         self.H_x_next[x1, y0:y1] = self.H_x[x1, y0:y1] + self.diff_coeff_x * ((self.E[x1, y0:y1] - E_inc[0:-1]) - (self.E[x1, y0+1:y1+1] - E_inc[1:]))
-        self.H_y_next[x1, y0:y1] = self.H_y[x1, y0:y1] - self.diff_coeff_y * ((self.E[x1, y0:y1] - E_inc[0:-1]) - self.E[x1+1, y0:y1])
+        self.H_y_next[x1, y0:y1] = self.H_y[x1, y0:y1] - self.diff_coeff_y * ((self.E[x1, y0:y1]) - (self.E[x1 + 1, y0:y1] - E_inc[0:-1]))
 
-
-        # [x0:x1, y0]
 
         E_inc = self.source_profile(t - ((y0 * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c, 10, 1e10)
         self.H_x_next[x0:x1, y0] = self.H_x[x0:x1, y0] + self.diff_coeff_x * ((self.E[x0:x1, y0] - E_inc[0:-1]) - self.E[x0:x1, y0 + 1])
@@ -214,6 +214,8 @@ class FDTD_2D:
 
         E_inc = self.source_profile(t - ((y1 * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c, 10, 1e10)
         self.H_x_next[x0:x1, y1 - 1] = self.H_x[x0:x1, y1 - 1] + self.diff_coeff_x * ((self.E[x0:x1, y1 - 1]) - (self.E[x0:x1, y1]  - E_inc[0:-1]))
+        self.H_y_next[x0:x1, y1] = self.H_y[x0:x1, y1] - self.diff_coeff_y * ((self.E[x0:x1, y1] - E_inc[0:-1]) - (self.E[x0+1:x1+1, y1] - E_inc[1:]))
+        
         
 
 
@@ -230,6 +232,8 @@ class FDTD_2D:
 
         y = np.arange(y0, y1, 1) * self.dy
         x = np.arange(x0, x1, 1) * self.dx
+
+
 
         # WHEN H<- is on surf.
         # [x0, y0:y1]
@@ -273,6 +277,8 @@ class FDTD_2D:
         H_x = H_x_plus - ky * self.source_profile(t - (((y1 + 1/2) * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c, 10, 1e10) / (self.Z0 )
 
         self.E_next[x0:x1, y1] = (self.alpha[x0:x1, y1] * self.E[x0:x1, y1] + (H_y_plus - H_y_minus) / self.dx - (H_x - H_x_minus) / self.dy)
+
+        self.E_next[x0-1:x0+1, y0] = 0
 
         
         # self.E_next[x0:x1, y0] = -self.source_profile(t - ((y0 * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c, 10, 1e10)
