@@ -26,12 +26,12 @@ class FDTD_1D:
         self.E_last = self.E
 
         self.r = np.pow(self.c * self.dt / self.dx, 2)
-        print(self.r)
+        # print(self.r)
 
         self.t = 0
 
     def source_profile(self, t, omega, scale):
-        return (1 - np.exp(- scale * t)) * np.cos(t * omega * scale) * np.exp(- np.pow( t * scale - 3, 2))
+        return (1 - np.exp(- scale * t)) * np.cos(t * omega * scale) * np.exp(- np.pow( t * scale - 3, 2)) / 50
 
     def forcing(self, offset):
         z = np.zeros(self.n + 2)
@@ -55,8 +55,16 @@ class FDTD_1D:
         # print(E_sr)
         # print(E)
 
-        E_next = 2 * E - E_last + self.r * (E_sl + E_sr - 2 * E) - (self.dt / (2 * self.permittivity)) * (self.forcing(self.dt) - self.forcing(-self.dt))
+        E_next = 2 * E - E_last + self.r * (E_sl + E_sr - 2 * E) - (np.pow(self.dt, 1) / (2 * self.permittivity)) * (self.forcing(self.dt) - self.forcing(-self.dt)) / (self.dx)
 
+        M = 3500
+
+        # print(E_next[M])
+        E_next[M] = E[M-1] + (E[M] - E_next[M-1]) * (self.dx - self.c * self.dt) / (self.dx + self.c * self.dt)
+        E_next[M + 1] = 0 
+        # E_next[M+ 5000] = 0
+        # print(E_next[M])
+        
 
 
         # plt.title("cross_coeff")
@@ -79,7 +87,7 @@ class FDTD_1D:
         plt.show()
 
     def animate(self, frame, graph, I):
-        for i in range(int(1e2)):
+        for i in range(int(1e1)):
             self.update()
         # updating the data
         x = self.x
@@ -88,25 +96,26 @@ class FDTD_1D:
         # creating a new graph or updating the graph
         graph.set_xdata(x)
         graph.set_ydata(y)
+        print(self.t)
 
         I.set_ydata([0, self.source_profile(self.t, 10, 1e7)])
 
-        print(np.max(np.abs(y)))
-        print(self.t / (self.dt * 10000))
+        # print(np.max(np.abs(y)))
+        # print(self.t / (self.dt * 10000))
 
         # plt.ylim(-3,3)
         plt.xlim(0, x[-1])
         plt.ylim(-4, 4)
 
 
-sim = FDTD_1D(0, 500, 1e-2, 4)
+sim = FDTD_1D(0, 500, 1e-1, 1)
 
 fig, ax = plt.subplots()
 graph = ax.plot([],[])[0]
 I = ax.plot([250, 250],[0, 0])[0]
 
 
-anim = FuncAnimation(fig, sim.animate, frames = None, save_count=50000,fargs=[graph, I])
+anim = FuncAnimation(fig, sim.animate, frames = None, save_count=1000,fargs=[graph, I])
 plt.show()
 
 anim.save(filename="ffmpeg_example.mp4", writer="ffmpeg", fps=60)
