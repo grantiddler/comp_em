@@ -1,4 +1,4 @@
-from fdtd_2d import FDTD_2D
+from fdtd_2d_PML import FDTD_2D
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -6,15 +6,17 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 
-sim = FDTD_2D(0, .125, 1e-4, 0, .125, 1e-4,1)
+# sim = FDTD_2D('PEC', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=100, sigma_max=1)
+sim = FDTD_2D('PEC', 0, .125, 5e-4, 0, .125, 5e-4,1, pml_cells=100, sigma_max=1)
+
 # sim = FDTD_2D(0, .25, 5e-4, 0, .25, 5e-4,1)
 # sim = FDTD_2D(0, 50, 1e-1, 0, 50, 1e-1,1)
 Es = []
 Hy = []
 Hx = []
 
-frames = 1000
-steps_per_frame = 25
+frames = 100
+steps_per_frame = 5
 for j in range(frames):
     for i in range(steps_per_frame):
         sim.update()
@@ -64,9 +66,9 @@ def animate(i, Es):
     # tx.set_text('Frame {0}'.format(i))
 
 ani = animation.FuncAnimation(fig, animate, frames=frames,interval=10, fargs=[Es])
-# plt.show()
+plt.show()
 
 
-ani.save(filename="2.mp4", writer="ffmpeg", fps=30)
+# ani.save(filename="2.mp4", writer="ffmpeg", fps=30)
 
 
