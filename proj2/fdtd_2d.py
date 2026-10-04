@@ -61,8 +61,8 @@ class FDTD_2D:
         self.diff_coeff_x = self.dt / (self.permeability * self.dy)
         self.diff_coeff_y = self.dt / (self.permeability * self.dx)
 
-        # self.epsilon_r +=  (np.sqrt(np.pow(self.x - .125,2) + np.pow(self.y - .125,2)) < 0.025)
-        # self.PEC_mask = (np.sqrt(np.pow(self.x - .125,2) + np.pow(self.y - .125,2)) < 0.0075)
+        self.PEC_mask = (np.sqrt(np.pow(self.x - .0625,2) + np.pow(self.y - .0625,2)) < 0.015)
+        # self.epsilon_r += 8 * (np.sqrt(np.pow(self.x - .0625,2) + np.pow(self.y - .0625,2)) < 0.015)
         self.permittivity = self.epsilon_0 * self.epsilon_r
         
 
@@ -234,7 +234,7 @@ class FDTD_2D:
         x = np.arange(x0, x1, 1) * self.dx
 
 
-
+        lazy = self.E_next[x0-1:x0+1, y0]
         # WHEN H<- is on surf.
         # [x0, y0:y1]
         H_y_plus = self.H_y[x0, y0:y1]
@@ -278,8 +278,7 @@ class FDTD_2D:
 
         self.E_next[x0:x1, y1] = (self.alpha[x0:x1, y1] * self.E[x0:x1, y1] + (H_y_plus - H_y_minus) / self.dx - (H_x - H_x_minus) / self.dy)
 
-        self.E_next[x0-1:x0+1, y0] = 0
-
+        self.E_next[x0-1:x0+1, y0] = lazy #lazy workaround because these 2 points are getting updated here but should not be and I am too tired to figrue out the indexing
         
         # self.E_next[x0:x1, y0] = -self.source_profile(t - ((y0 * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c, 10, 1e10)
         # # self.E_next[x0, y0:y1] = -self.source_profile(t - ((y - self.wave_origin_y) * ky + (x0 * self.dx - self.wave_origin_x) * kx) / self.c, 10, 1e10)
