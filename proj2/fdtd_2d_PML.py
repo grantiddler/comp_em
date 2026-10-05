@@ -80,9 +80,10 @@ class FDTD_2D:
         self.sigma_y = np.zeros([self.nx, self.ny])
 
         self.epsilon_r = np.ones([self.nx, self.ny]) 
+        # self.epsilon_r[self.rho <= self.a ] = 9
         self.conductivity = np.zeros([self.nx, self.ny]) 
 
-        #self.epsilon_r[0:int(self.nx/ 3), :] = 3
+        # self.epsilon_r[0:int(self.nx/ 3), :] = 3
 
         self.permittivity = self.epsilon_0 * self.epsilon_r
 
@@ -202,14 +203,14 @@ class FDTD_2D:
         self.beta = self.permittivity / self.dt + self.conductivity / 2
 
 
-        self.huygens_x0 = 50
-        self.huygens_x1 = self.nx - 50
-        self.huygens_y0 = 50
-        self.huygens_y1 = self.ny - 50
+        self.huygens_x0 = 100
+        self.huygens_x1 = self.nx - 100
+        self.huygens_y0 = 100
+        self.huygens_y1 = self.ny - 100
 
-        self.wave_origin_x = 0#.125
-        self.wave_origin_y = 0#.125
-        self.angle = np.pi * 0/4
+        self.wave_origin_x = 0#.25
+        self.wave_origin_y = 0#.25
+        self.angle = np.pi * 1/4
 
     def update(self):
         # E_yp = np.zeros([self.nx, self.ny + 1])
@@ -276,7 +277,7 @@ class FDTD_2D:
         self.t += 1
 
         if self.scatterer == 'PEC':
-            # self.E -= self.E * self.PEC_mask
+            self.E -= self.E * self.PEC_mask
             return
             
 
@@ -288,13 +289,17 @@ class FDTD_2D:
 
 
     def source_profile(self, t):
-        f0 = 0 #self.f0       # 300 MHz
+        f0 = self.f0       # 300 MHz
         t0 = 0.25e-9      # pulse centered at 3 ns
         tau = 0.5e-10     # pulse width
 
+        # return (
+        #     (t > 0) * np.sin(2 * np.pi * f0 * t) / 5
+        # )
+
         return (
             np.cos(2 * np.pi * f0 * t)
-            * np.exp(-((t - t0) / tau)**2)
+            * np.exp(-((t - t0) / tau)**2)/5
         )
     
 
@@ -369,62 +374,67 @@ class FDTD_2D:
         x = np.arange(x0, x1, 1) * self.dx
 
 
+        H_y_plus = np.zeros(np.shape(self.E))
+        H_y_minus = np.zeros(np.shape(self.E))
+
+        H_x_plus = np.zeros(np.shape(self.E))
+        H_x_minus = np.zeros(np.shape(self.E))
+        
+
         lazy1 = self.E_zx[x0-1:x0+1, y0]
         lazy2 = self.E_zy[x0-1:x0+1, y0]
+        lazy3 = self.E_zx[x0-1:x0+1, y1]
+        lazy4 = self.E_zy[x0-1:x0+1, y1]
 
+        
         # [x0, y0:y1]
-        H_y_plus = self.H_y[x0, y0:y1]
+        
+        H_y_plus = self.H_y[x0, y0:y1] - kx * self.source_profile(t - ((y - self.wave_origin_y) * ky + ((x0 + 1/2) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
         H_y_minus = self.H_y[x0-1, y0:y1]
 
-        H_x_plus = self.H_x[x0, y0:y1] + ky * self.source_profile(t - ((y + self.dy/2 - self.wave_origin_y) * ky + ((x0) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
-        H_x_minus = self.H_x[x0, y0-1:y1-1] + ky * self.source_profile(t - ((y - self.dy/2 - self.wave_origin_y) * ky + ((x0) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_plus = self.H_x[x0, y0:y1] + ky * self.source_profile(t - ((y + self.dy/2 - self.wave_origin_y) * ky + (x0 * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_minus = self.H_x[x0, y0-1:y1-1] + ky * self.source_profile(t - ((y - self.dy/2  - self.wave_origin_y) * ky + (x0 * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
 
-        H_y = H_y_minus + kx * self.source_profile(t - ((y- self.wave_origin_y) * ky + ((x0- 1/2) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
-        # DH_y = kx * (self.source_profile(t - ((y - self.wave_origin_y) * ky + ((x0- 1/2) * self.dx - self.wave_origin_x) * kx) / self.c) - self.source_profile(t - ((y - self.wave_origin_y) * ky + ((x0 + 1/2) * self.dx - self.wave_origin_x) * kx) / self.c)) / (self.Z0 )
-
-
-        self.E_zx_next[x0, y0:y1] = (self.A_Ex[x0, y0:y1] * self.E_zx[x0, y0:y1] + self.B_Ex[x0, y0:y1] * ( H_y_plus - H_y) / self.dx)
+        self.E_zx_next[x0, y0:y1] = (self.A_Ex[x0, y0:y1] * self.E_zx[x0, y0:y1] + self.B_Ex[x0, y0:y1] * ( H_y_plus -  H_y_minus) / self.dx)
         self.E_zy_next[x0, y0:y1] = (self.A_Ey[x0, y0:y1] * self.E_zy[x0, y0:y1] - self.B_Ey[x0, y0:y1] * ( H_x_plus -  H_x_minus) / self.dy)
 
-        # self.E_zx_next[x0-1:x0+1, y0] = lazy1
-        # self.E_zy_next[x0-1:x0+1, y0] = lazy2
 
-
-        # [x0:x1, y0]
-        H_y_plus = self.H_y[x0:x1, y0]
-        H_y_minus = self.H_y[x0-1:x1-1, y0]
-
-        H_x_plus = self.H_x[x0:x1, y0]
-        H_x_minus = self.H_x[x0:x1, y0-1]
-
-        H_x = H_x_minus - ky * self.source_profile(t - (((y0 - 1/2) * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
-        
-        self.E_zx_next[x0:x1, y0] = (self.A_Ex[x0:x1, y0] * self.E_zx[x0:x1, y0] + self.B_Ex[x0:x1, y0] * (H_y_plus - H_y_minus) / self.dx)
-        self.E_zy_next[x0:x1, y0] = (self.A_Ey[x0:x1, y0] * self.E_zy[x0:x1, y0] - self.B_Ey[x0:x1, y0] * (H_x_plus - H_x) / self.dy)
-       
-
-
-        
-        # [x0, y0:y1]
-
-        H_y_plus = self.H_y[x1, y0:y1]
+        H_y_plus = self.H_y[x1, y0:y1] + kx * self.source_profile(t - ((y - self.wave_origin_y) * ky + ((x1 + 1/2) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
         H_y_minus = self.H_y[x1-1, y0:y1]
 
-        H_x_plus = self.H_x[x1, y0:y1] + ky * self.source_profile(t - ((y + self.dy/2 - self.wave_origin_y) * ky + ((x1) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
-        H_x_minus = self.H_x[x1, y0-1:y1-1] + ky * self.source_profile(t - ((y - self.dy/2 - self.wave_origin_y) * ky + ((x1) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_plus = self.H_x[x1, y0:y1] - ky * self.source_profile(t - ((y + self.dy/2 - self.wave_origin_y) * ky + (x1 * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_minus = self.H_x[x1, y0-1:y1-1] - ky * self.source_profile(t - ((y - self.dy/2  - self.wave_origin_y) * ky + (x1 * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
 
-        H_y = H_y_plus + kx * self.source_profile(t - ((y - self.wave_origin_y) * ky + ((x1 + 1/2) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
-
-        self.E_zx_next[x1, y0:y1] = (self.A_Ex[x1, y0:y1] * self.E_zx[x1, y0:y1] + self.B_Ex[x1, y0:y1] * ( H_y - H_y_minus) / self.dx)
+        self.E_zx_next[x1, y0:y1] = (self.A_Ex[x1, y0:y1] * self.E_zx[x1, y0:y1] + self.B_Ex[x1, y0:y1] * ( H_y_plus -  H_y_minus) / self.dx)
         self.E_zy_next[x1, y0:y1] = (self.A_Ey[x1, y0:y1] * self.E_zy[x1, y0:y1] - self.B_Ey[x1, y0:y1] * ( H_x_plus -  H_x_minus) / self.dy)
 
-        
-        
-       
+        # [x0:x1, y0]
+        H_y_plus = self.H_y[x0:x1, y0] - kx * self.source_profile(t - (((y0) * self.dy - self.wave_origin_y) * ky + (x + self.dx/2 - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_y_minus = self.H_y[x0-1:x1-1, y0] - kx * self.source_profile(t - (((y0) * self.dy - self.wave_origin_y) * ky + (x - self.dx/2 - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+
+        H_x_plus = self.H_x[x0:x1, y0] + ky * self.source_profile(t - (((y0 + 1/2) * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_minus = self.H_x[x0:x1, y0-1]
+
+        self.E_zx_next[x0:x1, y0] = (self.A_Ex[x0:x1, y0] * self.E_zx[x0:x1, y0] + self.B_Ex[x0:x1, y0] * ( H_y_plus -  H_y_minus) / self.dx)
+        self.E_zy_next[x0:x1, y0] = (self.A_Ey[x0:x1, y0] * self.E_zy[x0:x1, y0] - self.B_Ey[x0:x1, y0] * ( H_x_plus -  H_x_minus) / self.dy)
 
         
 
+        H_y_plus = self.H_y[x0:x1, y1] + kx * self.source_profile(t - (((y1) * self.dy - self.wave_origin_y) * ky + (x + self.dx/2 - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_y_minus = self.H_y[x0-1:x1-1, y1] + kx * self.source_profile(t - (((y1) * self.dy - self.wave_origin_y) * ky + (x - self.dx/2 - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
 
+        H_x_plus = self.H_x[x0:x1, y1] - ky * self.source_profile(t - (((y1 + 1/2) * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_minus = self.H_x[x0:x1, y1-1]
+
+        self.E_zx_next[x0:x1, y1] = (self.A_Ex[x0:x1, y1] * self.E_zx[x0:x1, y1] + self.B_Ex[x0:x1, y1] * ( H_y_plus -  H_y_minus) / self.dx)
+        self.E_zy_next[x0:x1, y1] = (self.A_Ey[x0:x1, y1] * self.E_zy[x0:x1, y1] - self.B_Ey[x0:x1, y1] * ( H_x_plus -  H_x_minus) / self.dy)
+
+
+        # lazy workaround for indexing error
+        self.E_zx_next[x0-1:x0+1, y0] = lazy1
+        self.E_zy_next[x0-1:x0+1, y0] = lazy2
+        self.E_zx_next[x0-1:x0+1, y1] = lazy3
+        self.E_zy_next[x0-1:x0+1, y1] = lazy4
 
 
 

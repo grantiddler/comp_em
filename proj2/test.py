@@ -3,11 +3,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib.patches import Circle, Rectangle
 
 
 
-# sim = FDTD_2D('PEC', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=100, sigma_max=1)
-sim = FDTD_2D('PEC', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=100, sigma_max=1)
+# sim = FDTD_2D('PEC', 0, .25, 2e-4, 0, .25, 2e-4,1, pml_cells=25, sigma_max=1)
+sim = FDTD_2D('dielectric', 0, .25, 5e-4, 0, .25, 5e-4,1, pml_cells=50, sigma_max=1)
 
 # sim = FDTD_2D(0, .25, 5e-4, 0, .25, 5e-4,1)
 # sim = FDTD_2D(0, 50, 1e-1, 0, 50, 1e-1,1)
@@ -16,7 +17,7 @@ Hy = []
 Hx = []
 
 frames = 200
-steps_per_frame = 25
+steps_per_frame = 5
 for j in range(frames):
     for i in range(steps_per_frame):
         sim.update()
@@ -37,15 +38,28 @@ for j in range(frames):
 
 
 theta = np.linspace(0, np.pi * 2, 100)
-x = 0.0625 + np.sin(theta) * .015
-y = 0.0625 + np.cos(theta) * .015
+x = 0.125 + np.sin(theta) * .015
+y = 0.125 + np.cos(theta) * .015
 
 fig = plt.figure()
 ax = fig.add_subplot(111)
 ax.plot(x,y, linestyle=(0, (2,3)), linewidth=1)
 
+pml_rect = Rectangle(
+    (sim.pml_cells, sim.pml_cells),
+    sim.nx - 2*sim.pml_cells,
+    sim.ny - 2*sim.pml_cells,
+    fill=False,
+    edgecolor='black',
+    linestyle='--',
+    linewidth=1.5
+)
 
-ax.plot([25* sim.dx, (sim.nx-25) * sim.dx, (sim.nx-25) * sim.dx, 25 * sim.dx, 25 * sim.dx], [25 * sim.dy, 25 * sim.dy, (sim.ny-25) * sim.dy, (sim.ny-25) * sim.dy, 25 * sim.dy], linestyle=(0, (2,3)), linewidth=1)
+ax.add_patch(pml_rect)
+
+
+
+ax.plot([sim.pml_cells* sim.dx, (sim.nx-sim.pml_cells) * sim.dx, (sim.nx-sim.pml_cells) * sim.dx, sim.pml_cells * sim.dx, sim.pml_cells * sim.dx], [sim.pml_cells * sim.dy, sim.pml_cells * sim.dy, (sim.ny-sim.pml_cells) * sim.dy, (sim.ny-sim.pml_cells) * sim.dy, sim.pml_cells * sim.dy], linestyle=(0, (2,3)), linewidth=1)
 ax.plot([sim.huygens_x0 * sim.dx, sim.huygens_x1 * sim.dx, sim.huygens_x1 * sim.dx, sim.huygens_x0 * sim.dx, sim.huygens_x0 * sim.dx], [sim.huygens_y0 * sim.dy, sim.huygens_y0 * sim.dy, sim.huygens_y1 * sim.dy, sim.huygens_y1 * sim.dy, sim.huygens_y0 * sim.dy], linestyle=(0, (2,3)), linewidth=1)
 
 
