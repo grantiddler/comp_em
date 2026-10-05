@@ -7,7 +7,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 # sim = FDTD_2D('PEC', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=100, sigma_max=1)
-sim = FDTD_2D('PEC', 0, .125, 5e-4, 0, .125, 5e-4,1, pml_cells=100, sigma_max=1)
+sim = FDTD_2D('PEC', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=100, sigma_max=1)
 
 # sim = FDTD_2D(0, .25, 5e-4, 0, .25, 5e-4,1)
 # sim = FDTD_2D(0, 50, 1e-1, 0, 50, 1e-1,1)
@@ -15,8 +15,8 @@ Es = []
 Hy = []
 Hx = []
 
-frames = 100
-steps_per_frame = 5
+frames = 200
+steps_per_frame = 25
 for j in range(frames):
     for i in range(steps_per_frame):
         sim.update()
