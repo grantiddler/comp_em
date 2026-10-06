@@ -31,15 +31,11 @@ class FDTD_2D:
         self.k0 = (2 * np.pi) / self.lamda0
         self.kd = self.k0 * np.sqrt(self.epsilon_rc)
 
-
         self.phi = np.linspace(0, 2*np.pi, 361)
         n = np.arange(-50, 51) # 50 azimuthal harmonics
 
 
         self.nphi = np.outer(n, self.phi)
-
-        # dielectric A_n
-        
 
         self.x0 = x0
         self.x1 = x1
@@ -72,6 +68,7 @@ class FDTD_2D:
         self.rho = np.sqrt((self.X-self.xc)**2+(self.Y-self.yc)**2) # the distance of each grid point from the cylinder center
 
         self.PEC_mask = self.rho <= self.a 
+        self.cylinder_mask = self.rho <= self.a 
 
         self.pml_cells = pml_cells #variable for outer cell thickness of pml
 
@@ -115,12 +112,18 @@ class FDTD_2D:
 
 
 
+
         if self.scatterer == 'PEC':
             self.A_n = jv(n, self.k0*self.a)/hankel2(n, self.k0*self.a) #PEC A_n
             self.E_s[inside] = -self.E_i[inside] # E tot will become 0 inside PEC
         elif self.scatterer == 'dielectric':
+            #dielectric inside cylinder
+            self.epsilon_r[self.cylinder_mask] = self.epsilon_rc
+            self.epsilon = self.epsilon_0 * self.epsilon_r
+
             self.A_n = ((jvp(n, self.k0*self.a)*jv(n, self.kd*self.a)) - (np.sqrt(self.epsilon_rc)*jv(n, self.k0*self.a)*jvp(n, self.kd*self.a))
                                 ) / ((h2vp(n, self.k0*self.a)*jv(n, self.kd*self.a))- (np.sqrt(self.epsilon_rc)*hankel2(n, self.k0*self.a)*jvp(n, self.kd*self.a))) 
+
         else:
             print('Invalid Input')
             return
@@ -128,6 +131,8 @@ class FDTD_2D:
 
             
         self.sigma_2D = 4/self.k0 * np.abs(np.sum((-1j)**n_col * self.A_n[:, None] * np.exp(1j*self.nphi) * np.exp(1j*(n_col *2 + 1) * np.pi/4), axis = 0))**2 # axis = 0 gives same number of elements as self.phi
+        self.permittivity = self.epsilon_0 * self.epsilon_r
+        self.sigma_2D = 4/self.k0 * np.abs(np.sum(self.A_n[:, None] * np.exp(1j*self.nphi), axis = 0))**2 # axis = 0 gives same number of elements as self.phi
 
 
         # Scattered feild
@@ -281,8 +286,11 @@ class FDTD_2D:
             return
             
 
+            #enforces boundary condition of cylinder for PEC
+            self.E_zx[self.cylinder_mask] = 0
+            self.E_zy[self.cylinder_mask] = 0
         elif self.scatterer == 'dielectric':
-            return
+            pass
         else:
             print('not valid input')
 
