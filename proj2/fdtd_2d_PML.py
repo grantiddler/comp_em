@@ -19,9 +19,12 @@ class FDTD_2D:
         self.probe_history = [] #probe test
         self.E0 = 1
 
+        self.Z0 = np.sqrt(self.permeability / self.epsilon_0)
+
+
 
         #----Cylinder Variables----#
-        self.f0 =  10 * 10**9
+        self.f0 =  10e9
         self.a = 0.015 # cylinder radius in m
         self.epsilon_rc = 9 # e_r of cylinder
         self.lamda0 = self.c/self.f0
@@ -64,6 +67,7 @@ class FDTD_2D:
 
         self.rho = np.sqrt((self.X-self.xc)**2+(self.Y-self.yc)**2) # the distance of each grid point from the cylinder center
 
+        self.PEC_mask = self.rho <= self.a 
         self.cylinder_mask = self.rho <= self.a 
 
         self.pml_cells = pml_cells #variable for outer cell thickness of pml
@@ -73,9 +77,10 @@ class FDTD_2D:
         self.sigma_y = np.zeros([self.nx, self.ny])
 
         self.epsilon_r = np.ones([self.nx, self.ny]) 
+        self.epsilon_r[self.rho <= self.a ] = 9
         self.conductivity = np.zeros([self.nx, self.ny]) 
 
-        #self.epsilon_r[0:int(self.nx/ 3), :] = 3
+        # self.epsilon_r[0:int(self.nx/ 3), :] = 3
 
         self.permittivity = self.epsilon_0 * self.epsilon_r
 
@@ -122,6 +127,10 @@ class FDTD_2D:
         else:
             print('Invalid Input')
             return
+
+
+            
+        self.sigma_2D = 4/self.k0 * np.abs(np.sum((-1j)**n_col * self.A_n[:, None] * np.exp(1j*self.nphi) * np.exp(1j*(n_col *2 + 1) * np.pi/4), axis = 0))**2 # axis = 0 gives same number of elements as self.phi
         self.permittivity = self.epsilon_0 * self.epsilon_r
         self.sigma_2D = 4/self.k0 * np.abs(np.sum(self.A_n[:, None] * np.exp(1j*self.nphi), axis = 0))**2 # axis = 0 gives same number of elements as self.phi
 
@@ -129,7 +138,7 @@ class FDTD_2D:
         # Scattered feild
         self.E_s[outside] = -self.E0*(np.sum((-1j)**n_col * self.A_n[:, None] * hankel2(n_col, self.k0*self.rho[outside])*np.exp(1j*n_col*self.phi_grid[outside]), axis=0)) #scattering wave
 
-
+        
 
 
 
@@ -194,30 +203,19 @@ class FDTD_2D:
         self.diff_coeff_x = self.dt / (self.permeability * self.dy)
         self.diff_coeff_y = self.dt / (self.permeability * self.dx)
 
+
         self.alpha = self.permittivity / self.dt - self.conductivity / 2
         self.beta = self.permittivity / self.dt + self.conductivity / 2
 
-        # print("H_y shape:   ", self.H_y.shape)
-        # print("A_Hy shape:  ", self.A_Hy.shape)
-        # print("B_Hy shape:  ", self.B_Hy.shape)
 
-        # print("H_x shape:   ", self.H_x.shape)
-        # print("A_Hx shape:  ", self.A_Hx.shape)
-        # print("B_Hx shape:  ", self.B_Hx.shape)
+        self.huygens_x0 = 400
+        self.huygens_x1 = self.nx - 400
+        self.huygens_y0 = 400
+        self.huygens_y1 = self.ny - 400
 
-        # print("E shape:     ", self.E.shape)
-        # print("A_Ex shape:  ", self.A_Ex.shape)
-        # print("B_Ex shape:  ", self.B_Ex.shape)
-        # print("A_Ey shape:  ", self.A_Ey.shape)
-        # print("B_Ey shape:  ", self.B_Ey.shape)
-
-        # phi_deg = np.degrees(self.phi)
-
-        # plt.plot(phi_deg, self.sigma_2D)
-        # plt.xlabel("Observation Angle φ (degrees)")
-        # plt.ylabel("Echo Width σ₂D (m)")
-        # plt.grid()
-        # plt.show()
+        self.wave_origin_x = 0#.25
+        self.wave_origin_y = 0#.25
+        self.angle = np.pi * 0
 
     def update(self):
         # E_yp = np.zeros([self.nx, self.ny + 1])
@@ -235,8 +233,13 @@ class FDTD_2D:
         # print(E_up)
         # print(E_left)
         # print(E_right)
-        self.H_x = (self.A_Hx * self.H_x + self.B_Hx * (self.E[:, :-1] - self.E[:, 1:]) / self.dy)
-        self.H_y = (self.A_Hy * self.H_y + self.B_Hy * (self.E[1:, :] - self.E[:-1, :]) / self.dx)
+        self.H_x_next = (self.A_Hx * self.H_x + self.B_Hx * (self.E[:, :-1] - self.E[:, 1:]) / self.dy)
+        self.H_y_next = (self.A_Hy * self.H_y + self.B_Hy * (self.E[1:, :] - self.E[:-1, :]) / self.dx)
+
+        self.plane_wave_pt1(self.t * self.dt, self.angle, 1e8)
+
+        self.H_x = self.H_x_next
+        self.H_y = self.H_y_next
 
         H_y_plus = np.zeros(np.shape(self.E))
         H_y_minus = np.zeros(np.shape(self.E))
@@ -250,8 +253,15 @@ class FDTD_2D:
         H_x_plus[:, 0:-1] = self.H_x
         H_x_minus[:, 1:] = self.H_x
 
-        self.E_zx = (self.A_Ex * self.E_zx + self.B_Ex * ( H_y_plus -  H_y_minus) / self.dx)
-        self.E_zy = (self.A_Ey * self.E_zy - self.B_Ey * ( H_x_plus -  H_x_minus) / self.dy)
+        self.E_zx_next = (self.A_Ex * self.E_zx + self.B_Ex * ( H_y_plus -  H_y_minus) / self.dx)
+        self.E_zy_next = (self.A_Ey * self.E_zy - self.B_Ey * ( H_x_plus -  H_x_minus) / self.dy)
+
+        self.plane_wave_pt2(self.t * self.dt, self.angle, 1e8)
+
+        self.E_zx = self.E_zx_next
+        self.E_zy = self.E_zy_next
+
+        
 
         #test source
         source = self.source_profile(
@@ -261,10 +271,21 @@ class FDTD_2D:
         ix = int(self.nx / 4)
         iy = int(self.ny / 2)
 
-        self.E_zx[ix, iy] -= 0.5 * source
-        self.E_zy[ix, iy] -= 0.5 * source
+        # self.E_zx[ix, iy] -= 0.5 * source
+        # self.E_zy[ix, iy] -= 0.5 * source
+
+
+
+
+        self.E = self.E_zx + self.E_zy # combine split feilds
+
+        self.t += 1
 
         if self.scatterer == 'PEC':
+            self.E -= self.E * self.PEC_mask
+            return
+            
+
             #enforces boundary condition of cylinder for PEC
             self.E_zx[self.cylinder_mask] = 0
             self.E_zy[self.cylinder_mask] = 0
@@ -273,152 +294,287 @@ class FDTD_2D:
         else:
             print('not valid input')
 
-        self.E = self.E_zx +self.E_zy # combine split feilds
 
-
-
-        self.t += 1
 
     def source_profile(self, t):
         f0 = self.f0       # 300 MHz
-        t0 = 0.5e-9      # pulse centered at 3 ns
-        tau = 0.15e-9     # pulse width
+        t0 = 0.25e-9      # pulse centered at 3 ns
+        tau = 0.5e-10     # pulse width
 
         return (
-            np.sin(2 * np.pi * f0 * t)
-            * np.exp(-((t - t0) / tau)**2)
+            (t > 0) * np.sin(2 * np.pi * f0 * t) / 5
         )
 
+        return (
+            np.cos(2 * np.pi * f0 * t)
+            * np.exp(-((t - t0) / tau)**2)/5
+        )
+    
+
+    def ABC(self, M, d, ax):
+
+        
+        if(ax == "x"):
+
+            self.E_next[M, :] = self.E[M-d, :] + (self.E[M, :] - self.E_next[M-d, :]) * (self.dx - self.c * self.dt) / (self.dx + self.c * self.dt)
+            self.E_next[M+d,:] = 0 #self.E[-2,:]
+
+        if(ax == "y"):
+
+            self.E_next[:,M] = self.E[:,M-d] + (self.E[:,M] - self.E_next[:,M-d]) * (self.dx - self.c * self.dt) / (self.dx + self.c * self.dt)
+            self.E_next[:,M+d] = 0 #self.E[-2,:]
+
+
+    def source_profile2(self, t, a, b):
+
+        return (t > 0) * np.sin(t * 1e11) * (1 - np.exp( - t * 1e8)) / 5
+
+
+    def plane_wave_pt1(self, t, angle, frequency):
+        x0 = self.huygens_x0 
+        x1 = self.huygens_x1 
+        y0 = self.huygens_y0 
+        y1 = self.huygens_y1 
+
+        k = frequency / self.c
+        kx = np.cos(angle)
+        ky = np.sin(angle)
+
+        y = np.arange(y0, y1 + 1, 1) * self.dy
+        x = np.arange(x0, x1 + 1, 1) * self.dx
+
+        # [x0, y0:y1]
+
+        # self.H_x_next = (self.A_Hx * self.H_x + self.B_Hx * (self.E[:, :-1] - self.E[:, 1:]) / self.dy)
+        # self.H_y_next = (self.A_Hy * self.H_y + self.B_Hy * (self.E[1:, :] - self.E[:-1, :]) / self.dx)
+
+        E_inc = self.source_profile(t - ((y - self.wave_origin_y) * ky + (x0 * self.dx - self.wave_origin_x) * kx) / self.c)
+        self.H_x_next[x0 - 1, y0:y1] = self.H_x[x0 - 1, y0:y1] + self.diff_coeff_x * ((self.E[x0 - 1, y0:y1] - E_inc[0:-1]) - (self.E[x0 - 1, y0+1:y1+1] - E_inc[1:]))
+        self.H_y_next[x0 - 1, y0:y1] = self.H_y[x0 - 1, y0:y1] - self.diff_coeff_y * ((self.E[x0 - 1, y0:y1] - E_inc[0:-1]) - self.E[x0, y0:y1])
+
+
+        E_inc = self.source_profile(t - ((y - self.wave_origin_y) * ky + (x1 * self.dx - self.wave_origin_x) * kx) / self.c)
+        self.H_x_next[x1, y0:y1] = self.H_x[x1, y0:y1] + self.diff_coeff_x * ((self.E[x1, y0:y1] - E_inc[0:-1]) - (self.E[x1, y0+1:y1+1] - E_inc[1:]))
+        self.H_y_next[x1, y0:y1] = self.H_y[x1, y0:y1] - self.diff_coeff_y * ((self.E[x1, y0:y1]) - (self.E[x1 + 1, y0:y1] - E_inc[0:-1]))
+
+
+        E_inc = self.source_profile(t - ((y0 * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c)
+        self.H_x_next[x0:x1, y0] = self.H_x[x0:x1, y0] + self.diff_coeff_x * ((self.E[x0:x1, y0] - E_inc[0:-1]) - self.E[x0:x1, y0 + 1])
+        self.H_y_next[x0:x1, y0] = self.H_y[x0:x1, y0] - self.diff_coeff_y * ((self.E[x0:x1, y0] - E_inc[0:-1]) - (self.E[x0+1:x1+1, y0] - E_inc[1:]))
+
+
+        E_inc = self.source_profile(t - ((y1 * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c)
+        self.H_x_next[x0:x1, y1 - 1] = self.H_x[x0:x1, y1 - 1] + self.diff_coeff_x * ((self.E[x0:x1, y1 - 1]) - (self.E[x0:x1, y1]  - E_inc[0:-1]))
+        self.H_y_next[x0:x1, y1] = self.H_y[x0:x1, y1] - self.diff_coeff_y * ((self.E[x0:x1, y1] - E_inc[0:-1]) - (self.E[x0+1:x1+1, y1] - E_inc[1:]))
+        
+    
+    def plane_wave_pt2(self, t, angle, frequency):
+        x0 = self.huygens_x0 
+        x1 = self.huygens_x1 
+        y0 = self.huygens_y0 
+        y1 = self.huygens_y1 
+
+        k = frequency / self.c
+        kx = np.cos(angle)
+        ky = np.sin(angle)
+
+        y = np.arange(y0, y1, 1) * self.dy
+        x = np.arange(x0, x1, 1) * self.dx
+
+
+        H_y_plus = np.zeros(np.shape(self.E))
+        H_y_minus = np.zeros(np.shape(self.E))
+
+        H_x_plus = np.zeros(np.shape(self.E))
+        H_x_minus = np.zeros(np.shape(self.E))
+        
+
+        lazy1 = self.E_zx[x0-1:x0+1, y0]
+        lazy2 = self.E_zy[x0-1:x0+1, y0]
+        lazy3 = self.E_zx[x0-1:x0+1, y1]
+        lazy4 = self.E_zy[x0-1:x0+1, y1]
+
+        
+        # [x0, y0:y1]
+        
+        H_y_plus = self.H_y[x0, y0:y1] - kx * self.source_profile(t - ((y - self.wave_origin_y) * ky + ((x0 + 1/2) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_y_minus = self.H_y[x0-1, y0:y1]
+
+        H_x_plus = self.H_x[x0, y0:y1] + ky * self.source_profile(t - ((y + self.dy/2 - self.wave_origin_y) * ky + (x0 * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_minus = self.H_x[x0, y0-1:y1-1] + ky * self.source_profile(t - ((y - self.dy/2  - self.wave_origin_y) * ky + (x0 * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+
+        self.E_zx_next[x0, y0:y1] = (self.A_Ex[x0, y0:y1] * self.E_zx[x0, y0:y1] + self.B_Ex[x0, y0:y1] * ( H_y_plus -  H_y_minus) / self.dx)
+        # self.E_zy_next[x0, y0:y1] = (self.A_Ey[x0, y0:y1] * self.E_zy[x0, y0:y1] - self.B_Ey[x0, y0:y1] * ( H_x_plus -  H_x_minus) / self.dy)
+
+
+        H_y_plus = self.H_y[x1, y0:y1] + kx * self.source_profile(t - ((y - self.wave_origin_y) * ky + ((x1 + 1/2) * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_y_minus = self.H_y[x1-1, y0:y1]
+
+        H_x_plus = self.H_x[x1, y0:y1] - ky * self.source_profile(t - ((y + self.dy/2 - self.wave_origin_y) * ky + (x1 * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_minus = self.H_x[x1, y0-1:y1-1] - ky * self.source_profile(t - ((y - self.dy/2  - self.wave_origin_y) * ky + (x1 * self.dx - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+
+        self.E_zx_next[x1, y0:y1] = (self.A_Ex[x1, y0:y1] * self.E_zx[x1, y0:y1] + self.B_Ex[x1, y0:y1] * ( H_y_plus -  H_y_minus) / self.dx)
+        # self.E_zy_next[x1, y0:y1] = (self.A_Ey[x1, y0:y1] * self.E_zy[x1, y0:y1] - self.B_Ey[x1, y0:y1] * ( H_x_plus -  H_x_minus) / self.dy)
+
+        # [x0:x1, y0]
+        H_y_plus = self.H_y[x0:x1, y0] - kx * self.source_profile(t - (((y0) * self.dy - self.wave_origin_y) * ky + (x + self.dx/2 - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_y_minus = self.H_y[x0-1:x1-1, y0] - kx * self.source_profile(t - (((y0) * self.dy - self.wave_origin_y) * ky + (x - self.dx/2 - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+
+        H_x_plus = self.H_x[x0:x1, y0] + ky * self.source_profile(t - (((y0 + 1/2) * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_minus = self.H_x[x0:x1, y0-1]
+
+        # self.E_zx_next[x0:x1, y0] = (self.A_Ex[x0:x1, y0] * self.E_zx[x0:x1, y0] + self.B_Ex[x0:x1, y0] * ( H_y_plus -  H_y_minus) / self.dx)
+        self.E_zy_next[x0:x1, y0] = (self.A_Ey[x0:x1, y0] * self.E_zy[x0:x1, y0] - self.B_Ey[x0:x1, y0] * ( H_x_plus -  H_x_minus) / self.dy)
+
+        
+
+        H_y_plus = self.H_y[x0:x1, y1] + kx * self.source_profile(t - (((y1) * self.dy - self.wave_origin_y) * ky + (x + self.dx/2 - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_y_minus = self.H_y[x0-1:x1-1, y1] + kx * self.source_profile(t - (((y1) * self.dy - self.wave_origin_y) * ky + (x - self.dx/2 - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+
+        H_x_plus = self.H_x[x0:x1, y1] - ky * self.source_profile(t - (((y1 + 1/2) * self.dy - self.wave_origin_y) * ky + (x - self.wave_origin_x) * kx) / self.c) / (self.Z0 )
+        H_x_minus = self.H_x[x0:x1, y1-1]
+
+        # self.E_zx_next[x0:x1, y1] = (self.A_Ex[x0:x1, y1] * self.E_zx[x0:x1, y1] + self.B_Ex[x0:x1, y1] * ( H_y_plus -  H_y_minus) / self.dx)
+        self.E_zy_next[x0:x1, y1] = (self.A_Ey[x0:x1, y1] * self.E_zy[x0:x1, y1] - self.B_Ey[x0:x1, y1] * ( H_x_plus -  H_x_minus) / self.dy)
+
+
+        # lazy workaround for indexing error
+        self.E_zx_next[x0-1:x0+1, y0] = lazy1
+        self.E_zy_next[x0-1:x0+1, y0] = lazy2
+        self.E_zx_next[x0-1:x0+1, y1] = lazy3
+        self.E_zy_next[x0-1:x0+1, y1] = lazy4
 
 
 
-sim = FDTD_2D('dielectric', 0, 0.3, 0.003, 0, 0.3, 0.003, pml_cells=10, sigma_max=1)
-
-fig, ax = plt.subplots()
-
-im = ax.imshow(
-    sim.E.T,
-    origin="lower",
-    cmap=plt.colormaps["RdBu_r"],
-    vmin=-0.25,
-    vmax=0.25,
-    animated=True,
-    interpolation="bilinear"
-)
-
-pec_circle = Circle(
-    (sim.nx/2, sim.ny/2),
-    sim.a/sim.dx,
-    fill=False,
-    edgecolor='black',
-    linewidth=1
-)
-ax.add_patch(pec_circle)
-
-pml_rect = Rectangle(
-    (sim.pml_cells, sim.pml_cells),
-    sim.nx - 2*sim.pml_cells,
-    sim.ny - 2*sim.pml_cells,
-    fill=False,
-    edgecolor='black',
-    linestyle='--',
-    linewidth=1.5
-)
-
-ax.add_patch(pml_rect)
 
 
-plt.colorbar(im, ax=ax)
+# sim = FDTD_2D('PEC', 0, 0.25, 1e-4, 0, 0.25, 1e-4, pml_cells=10, sigma_max=1)
 
-def animate(frame):
-    for _ in range(1):
-        sim.update()
+# fig, ax = plt.subplots()
 
-        probe_x = int(sim.nx / 2) + 5
-        probe_y = int(sim.ny / 2)
+# im = ax.imshow(
+#     sim.E.T,
+#     origin="lower",
+#     cmap=plt.colormaps["RdBu_r"],
+#     vmin=-0.25,
+#     vmax=0.25,
+#     animated=True,
+#     interpolation="bilinear"
+# )
 
-        sim.probe_history.append(sim.E[probe_x, probe_y])
+# pec_circle = Circle(
+#     (sim.nx/2, sim.ny/2),
+#     sim.a/sim.dx,
+#     fill=False,
+#     edgecolor='black',
+#     linewidth=1
+# )
+# ax.add_patch(pec_circle)
 
-    im.set_array(sim.E.T)
-    return im, pec_circle, pml_rect
+# pml_rect = Rectangle(
+#     (sim.pml_cells, sim.pml_cells),
+#     sim.nx - 2*sim.pml_cells,
+#     sim.ny - 2*sim.pml_cells,
+#     fill=False,
+#     edgecolor='black',
+#     linestyle='--',
+#     linewidth=1.5
+# )
 
-ani = FuncAnimation(
-    fig,
-    animate,
-    frames=500,
-    interval=10,
-    blit=True
-)
+# ax.add_patch(pml_rect)
 
-plt.show()
 
-# plt.imshow(sim.sigma_x.T, origin='lower')
-# plt.colorbar(label='sigma_x')
-# plt.title('PML sigma_x')
-# plt.show()
+# plt.colorbar(im, ax=ax)
 
-# plt.imshow(sim.sigma_y.T, origin='lower')
-# plt.colorbar(label='sigma_y')
-# plt.title('PML sigma_y')
-# plt.show()
-
-# sim = FDTD_2D(0, 50, 1e-1, 0, 50, 1e-1)
-# while True:
-#     for i in range(20):
+# def animate(frame):
+#     for _ in range(1):
 #         sim.update()
 
-#     print(sim.source_profile((sim.t + 0.5) * sim.dt, 10, 1e7))
-#     print(np.max(np.abs(sim.E)))
+#         probe_x = int(sim.nx / 2) + 5
+#         probe_y = int(sim.ny / 2)
 
-#     plt.imshow(np.transpose(sim.E), cmap=plt.colormaps["PuOr"], vmin=-0.25, vmax=0.25)
-#     plt.colorbar()
-#     plt.show()
+#         sim.probe_history.append(sim.E[probe_x, probe_y])
 
-# sim_pml = FDTD_2D(
-#     0, 5, 0.1,
-#     0, 5, 0.1,
-#     pml_cells=10,
-#     sigma_max=0.07
+#     im.set_array(sim.E.T)
+#     return im, pec_circle, pml_rect
+
+# ani = FuncAnimation(
+#     fig,
+#     animate,
+#     frames=500,
+#     interval=10,
+#     blit=True
 # )
-
-# sim_no_pml = FDTD_2D(
-#     0, 5, 0.1,
-#     0, 5, 0.1,
-#     pml_cells=10,
-#     sigma_max=0.0
-# )
-
-# probe_x = int(sim_pml.nx / 2) + 5
-# probe_y = int(sim_pml.ny / 2)
-
-# for n in range(500):
-#     sim_pml.update()
-#     sim_no_pml.update()
-
-#     sim_pml.probe_history.append(
-#         sim_pml.E[probe_x, probe_y]
-#     )
-
-#     sim_no_pml.probe_history.append(
-#         sim_no_pml.E[probe_x, probe_y]
-#     )
-
-# plt.figure()
-
-# plt.plot(
-#     sim_pml.probe_history,
-#     label="PML"
-# )
-
-# plt.plot(
-#     sim_no_pml.probe_history,
-#     label="No PML"
-# )
-
-# plt.xlabel("Time step")
-# plt.ylabel("Ez at probe")
-# plt.title("PML vs No PML")
-# plt.legend()
-# plt.grid()
 
 # plt.show()
+
+# # plt.imshow(sim.sigma_x.T, origin='lower')
+# # plt.colorbar(label='sigma_x')
+# # plt.title('PML sigma_x')
+# # plt.show()
+
+# # plt.imshow(sim.sigma_y.T, origin='lower')
+# # plt.colorbar(label='sigma_y')
+# # plt.title('PML sigma_y')
+# # plt.show()
+
+# # sim = FDTD_2D(0, 50, 1e-1, 0, 50, 1e-1)
+# # while True:
+# #     for i in range(20):
+# #         sim.update()
+
+# #     print(sim.source_profile((sim.t + 0.5) * sim.dt, 10, 1e7))
+# #     print(np.max(np.abs(sim.E)))
+
+# #     plt.imshow(np.transpose(sim.E), cmap=plt.colormaps["PuOr"], vmin=-0.25, vmax=0.25)
+# #     plt.colorbar()
+# #     plt.show()
+
+# # sim_pml = FDTD_2D(
+# #     0, 5, 0.1,
+# #     0, 5, 0.1,
+# #     pml_cells=10,
+# #     sigma_max=0.07
+# # )
+
+# # sim_no_pml = FDTD_2D(
+# #     0, 5, 0.1,
+# #     0, 5, 0.1,
+# #     pml_cells=10,
+# #     sigma_max=0.0
+# # )
+
+# # probe_x = int(sim_pml.nx / 2) + 5
+# # probe_y = int(sim_pml.ny / 2)
+
+# # for n in range(500):
+# #     sim_pml.update()
+# #     sim_no_pml.update()
+
+# #     sim_pml.probe_history.append(
+# #         sim_pml.E[probe_x, probe_y]
+# #     )
+
+# #     sim_no_pml.probe_history.append(
+# #         sim_no_pml.E[probe_x, probe_y]
+# #     )
+
+# # plt.figure()
+
+# # plt.plot(
+# #     sim_pml.probe_history,
+# #     label="PML"
+# # )
+
+# # plt.plot(
+# #     sim_no_pml.probe_history,
+# #     label="No PML"
+# # )
+
+# # plt.xlabel("Time step")
+# # plt.ylabel("Ez at probe")
+# # plt.title("PML vs No PML")
+# # plt.legend()
+# # plt.grid()
+
+# # plt.show()
