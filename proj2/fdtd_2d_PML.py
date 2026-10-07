@@ -24,7 +24,7 @@ class FDTD_2D:
 
 
         #----Cylinder Variables----#
-        self.f0 =  10e8
+        self.f0 =  10e9
         self.a = 0.015 # cylinder radius in m
         self.epsilon_rc = 9 # e_r of cylinder
         self.lamda0 = self.c/self.f0
@@ -130,7 +130,7 @@ class FDTD_2D:
 
 
             
-        self.sigma_2D = 4/self.k0 * np.abs(np.sum((-1j)**n_col * self.A_n[:, None] * np.exp(1j*self.nphi) * np.exp(1j*(n_col *2 + 1) * np.pi/4), axis = 0))**2 # axis = 0 gives same number of elements as self.phi
+        #self.sigma_2D = 4/self.k0 * np.abs(np.sum((-1j)**n_col * self.A_n[:, None] * np.exp(1j*self.nphi) * np.exp(1j*(n_col *2 + 1) * np.pi/4), axis = 0))**2 # axis = 0 gives same number of elements as self.phi
         self.permittivity = self.epsilon_0 * self.epsilon_r
         self.sigma_2D = 4/self.k0 * np.abs(np.sum(self.A_n[:, None] * np.exp(1j*self.nphi), axis = 0))**2 # axis = 0 gives same number of elements as self.phi
 

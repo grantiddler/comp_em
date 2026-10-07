@@ -173,7 +173,7 @@ class FDTD_2D:
     def source_profile(self, t, omega, scale):
         # return 1 - np.exp(-t * scale)
         omega = 10
-        scale = 1e10
+        scale = 1e9
         return (t > 0) * (1 - np.exp(- scale * t)) * np.cos(t * omega * scale) * np.exp(- np.pow( t * scale - 3, 2)) / 5
 
     def source_profile2(self, t, a, b):

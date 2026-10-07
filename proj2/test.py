@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.patches import Circle, Rectangle
+from scipy.integrate import simpson
 
 from scipy.fft import rfft
 
@@ -106,6 +107,7 @@ f0 = int((2 * sim.f0 * sim.dt * np.shape(M_x_l_ft)[1]))
 k = sim.k0
 
 
+
 theta = np.atleast_2d(np.linspace(0,np.pi * 2, 100))
 rx = np.cos(theta)
 ry = np.sin(theta)
@@ -141,10 +143,29 @@ phi_y = -np.cos(theta)
 
 L = L_x * phi_x + L_y * phi_y
 
+
+
 print(sim.k0)
 mag_E_f0 = L[:, f0] + sim.Z0 * N[:, f0]
 #echo_width = np.abs(mag_E) ** 2
+
 echo_width = (sim.k0 / (np.pi*4)) * np.abs(mag_E_f0 / source_ft[f0])**2
+
+phi_fdtd = theta[:, 0]
+
+#matches sample size
+sigma_2D_interp = np.interp(phi_fdtd, sim.phi, sim.sigma_2D)
+
+#numerator
+num = np.sqrt(simpson((echo_width - sigma_2D_interp)**2, x=theta[:,0]) / (theta[-1,0] - theta[0,0]))   #can increase angular samples for better acuracy
+
+# denominator
+den = np.sqrt(simpson(sigma_2D_interp**2, x=phi_fdtd))
+
+rmse = num/den
+
+print("Normalized RMSE =", rmse)
+print("Normalized RMSE (%) =", rmse * 100)
 
 f = np.linspace(0, np.shape(M_x_l_ft)[1], np.shape(M_x_l_ft)[1]) * 1 / (np.shape(M_x_l_ft)[1] * 2 * sim.dt)
 
