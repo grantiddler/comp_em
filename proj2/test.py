@@ -10,7 +10,7 @@ from scipy.fft import rfft
 
 
 
-sim = FDTD_2D('PEC', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=125, sigma_max=1)
+sim = FDTD_2D('PEC', 0, .125, 5e-4, 0, .125, 5e-4,1, pml_cells=20, sigma_max=1)
 # sim = FDTD_2D(0, .125, 1e-4, 0, .125, 1e-4,1)
 # sim = FDTD_2D(0, .25, 5e-4, 0, .25, 5e-4,1)
 # sim = FDTD_2D('dielectric', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=50, sigma_max=1)
@@ -22,15 +22,25 @@ Hy = []
 Hx = []
 
 frames = 500
-steps_per_frame = 5
+steps_per_frame = 2
+
+#simulation time samples
+Nt = frames * steps_per_frame
+t = np.arange(Nt) * sim.dt
+
+
+#source waveform
+source_time = sim.source_profile(t) 
+
+source_ft = rfft(source_time)
 
 ts = []
 
 
-x0 = 250
-x1 = sim.nx - 250
-y0 = 250
-y1 = sim.ny - 250
+x0 = 25
+x1 = sim.nx - 25
+y0 = 25
+y1 = sim.ny - 25
 
 
 xs = np.linspace(x0, x1, x1-x0) * sim.dx
@@ -88,11 +98,12 @@ J_x_u_ft = rfft(J_x_u)
 J_x_r_ft = rfft(J_x_r)
 J_x_d_ft = rfft(J_x_d)
 
+# Find the FFT bin index corresponding to the source frequency f0 = 10 GHz
 f0 = int((2 * sim.f0 * sim.dt * np.shape(M_x_l_ft)[1]))
 
 
-
-k = sim.f0 / sim.c
+# Wavenumber used for spatial phase term in the far-field calculation
+k = sim.k0
 
 
 theta = np.atleast_2d(np.linspace(0,np.pi * 2, 100))
@@ -109,17 +120,17 @@ exponential_u = np.exp(1j * k * (rx.T * np.atleast_2d(xs - 0.0625) + ry.T * np.a
 # N is Z directed
 print(np.shape(J_x_l_ft))
 print(np.shape(exponential_l))
-N = (exponential_l @ J_x_l_ft ) * sim.dx
+N  = (exponential_l @ J_x_l_ft) * sim.dy
 N += (exponential_r @ J_x_r_ft) * sim.dy
 N += (exponential_u @ J_x_u_ft) * sim.dx
-N += (exponential_d @ J_x_d_ft) * sim.dy
+N += (exponential_d @ J_x_d_ft) * sim.dx
 
 
 
-L_y = (exponential_l @ M_x_l_ft ) * sim.dx
-L_y += (exponential_r @ M_x_r_ft) * sim.dx
-L_x = (exponential_u @ M_x_u_ft) * sim.dy
-L_x += (exponential_d @ M_x_d_ft) * sim.dy
+L_y  = (exponential_l @ M_x_l_ft) * sim.dy
+L_y += (exponential_r @ M_x_r_ft) * sim.dy
+L_x  = (exponential_u @ M_x_u_ft) * sim.dx
+L_x += (exponential_d @ M_x_d_ft) * sim.dx
 
 
 
@@ -131,30 +142,49 @@ phi_y = -np.cos(theta)
 L = L_x * phi_x + L_y * phi_y
 
 print(sim.k0)
-mag_E = (L + sim.Z0 * N)
-echo_width = np.abs(mag_E) ** 2
+mag_E_f0 = L[:, f0] + sim.Z0 * N[:, f0]
+#echo_width = np.abs(mag_E) ** 2
+echo_width = (sim.k0 / (np.pi*4)) * np.abs(mag_E_f0 / source_ft[f0])**2
 
 f = np.linspace(0, np.shape(M_x_l_ft)[1], np.shape(M_x_l_ft)[1]) * 1 / (np.shape(M_x_l_ft)[1] * 2 * sim.dt)
 
 f0 = round((2 * sim.f0 * sim.dt * np.shape(M_x_l_ft)[1]))
 
 plt.polar(sim.phi, sim.sigma_2D)
+plt.title("Analytical Bistatic Echo Width")
 plt.show()
 
-plt.polar(theta,echo_width[:,f0])
+plt.polar(theta[:,0],echo_width)
+plt.title("Numerical Bistatic Echo Width")
 plt.show()
 
-plt.polar(sim.phi, sim.sigma_2D)
-plt.polar(theta,echo_width[:,f0]*sim.dx)
+plt.polar(sim.phi, sim.sigma_2D, label="Analytical Solution")
+plt.polar(theta[:,0],echo_width, label="Numerical Solution")
+plt.legend()
+plt.title("Analytical and FDTD Bistatic Echo Width")
 plt.show()
 # plt.title("phase")
 # plt.plot(np.angle(1j * mag_E[:,f0]))
 # plt.show()
 
-# plt.title("complex")
-# plt.plot(np.linspace(0,np.pi * 2, 100), np.real(mag_E[:,f0]))
-# plt.plot(np.linspace(0,np.pi * 2, 100), np.imag(mag_E[:,f0]))
+analytical_norm = sim.sigma_2D / np.max(sim.sigma_2D)
+
+numerical_sigma = echo_width
+numerical_norm = numerical_sigma / np.max(numerical_sigma)
+
+# plt.polar(sim.phi, sim.sigma_2D, label="Analytical")
+# plt.polar(theta[:,0], echo_width, label="FDTD")
+# plt.title("Analytical and FDTD Bistatic Echo Width")
+# plt.legend()
 # plt.show()
+# print("source FFT at f0 =", abs(source_ft[f0]))
+# print("Analytical max =", np.max(sim.sigma_2D))
+# print("FDTD max =", np.max(echo_width))
+
+# print("Source FFT at 10 GHz =", np.abs(source_ft[f0]))
+# print("max |L| =", np.max(np.abs(L[:, f0])))
+# print("max |Z0*N| =", np.max(np.abs(sim.Z0 * N[:, f0])))
+# print("max |L+Z0*N| =", np.max(np.abs(L[:, f0] + sim.Z0 * N[:, f0])))
 
 # f=k/n
 
@@ -162,9 +192,11 @@ plt.show()
 theta = np.linspace(0, np.pi * 2, 100)
 x = 0.0625 + np.sin(theta) * .015
 y = 0.0625 + np.cos(theta) * .015
-
+print("Starting animation")
+print("Total simulated time:", frames * steps_per_frame * sim.dt)
 fig = plt.figure()
 ax = fig.add_subplot(111)
+ax.set_title(r"TM$_z$ Scattering from a PEC Cylinder")
 ax.plot(x,y, linestyle=(0, (2,3)), linewidth=1)
 
 # pml_rect = Rectangle(
@@ -195,14 +227,14 @@ cb = fig.colorbar(cf, cax=cax)
 # tx = ax.set_title('Frame 0')
 
 def animate(i, Es):
-    print(i)
+    #print(i)
     arr = Es[i]
     cf.set_data(arr)
     cax.cla()
     fig.colorbar(cf, cax=cax)
     # tx.set_text('Frame {0}'.format(i))
 
-ani = animation.FuncAnimation(fig, animate, frames=frames,interval=10, fargs=[Es])
+ani = animation.FuncAnimation(fig, animate, frames=frames,interval=10, fargs=[Es], repeat=False)
 plt.show()
 
 
