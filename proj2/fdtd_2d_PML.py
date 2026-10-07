@@ -208,10 +208,10 @@ class FDTD_2D:
         self.beta = self.permittivity / self.dt + self.conductivity / 2
 
 
-        self.huygens_x0 = 50
-        self.huygens_x1 = self.nx - 50
-        self.huygens_y0 = 50
-        self.huygens_y1 = self.ny - 50
+        self.huygens_x0 = 160
+        self.huygens_x1 = self.nx - 160
+        self.huygens_y0 = 160
+        self.huygens_y1 = self.ny - 160
 
         self.wave_origin_x = 0#.25
         self.wave_origin_y = 0#.25

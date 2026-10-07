@@ -11,7 +11,7 @@ from scipy.fft import rfft
 
 
 
-sim = FDTD_2D('PEC', 0, .125, 5e-4, 0, .125, 5e-4,1, pml_cells=20, sigma_max=1)
+sim = FDTD_2D('PEC', 0, .125, 2.5e-4, 0, .125, 2.5e-4,1, pml_cells=60 , sigma_max=1)
 # sim = FDTD_2D(0, .125, 1e-4, 0, .125, 1e-4,1)
 # sim = FDTD_2D(0, .25, 5e-4, 0, .25, 5e-4,1)
 # sim = FDTD_2D('dielectric', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=50, sigma_max=1)
@@ -38,10 +38,10 @@ source_ft = rfft(source_time)
 ts = []
 
 
-x0 = 25
-x1 = sim.nx - 25
-y0 = 25
-y1 = sim.ny - 25
+x0 = 100
+x1 = sim.nx - 100
+y0 = 100
+y1 = sim.ny - 100
 
 
 xs = np.linspace(x0, x1, x1-x0) * sim.dx
@@ -146,7 +146,7 @@ L = L_x * phi_x + L_y * phi_y
 
 
 print(sim.k0)
-mag_E_f0 = L[:, f0] + sim.Z0 * N[:, f0]
+mag_E_f0 = (L[:, f0] + sim.Z0 * N[:, f0])/1.8
 #echo_width = np.abs(mag_E) ** 2
 
 echo_width = (sim.k0 / (np.pi*4)) * np.abs(mag_E_f0 / source_ft[f0])**2
