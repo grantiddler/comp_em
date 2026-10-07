@@ -88,6 +88,30 @@ for j in range(frames):
     # plt.colorbar()
     # plt.show()
 
+E = Es[-1].T
+
+E_scattered = E
+x = sim.X
+y = sim.Y
+
+plt.imshow(E_scattered.T, cmap=plt.colormaps["seismic"], vmin=-0.25, vmax=0.25, origin="lower", extent=(sim.x0,sim.x1,sim.y0,sim.y1))
+plt.show()
+
+kx = np.cos(sim.angle)
+ky = np.sin(sim.angle)
+
+E_inc = -sim.source_profile(sim.t*sim.dt - ((y - sim.wave_origin_y) * ky + (x - sim.wave_origin_x) * kx) / sim.c)
+plt.imshow(E_inc.T, cmap=plt.colormaps["seismic"], vmin=-0.25, vmax=0.25, origin="lower", extent=(sim.x0,sim.x1,sim.y0,sim.y1))
+plt.show()
+
+E_scattered[sim.huygens_x0:sim.huygens_x1+1,sim.huygens_y0+1:sim.huygens_y1] -= E_inc[sim.huygens_x0:sim.huygens_x1+1,sim.huygens_y0+1:sim.huygens_y1]
+plt.imshow(E_scattered.T, cmap=plt.colormaps["seismic"], vmin=-0.25, vmax=0.25, origin="lower", extent=(sim.x0,sim.x1,sim.y0,sim.y1))
+plt.show()
+
+E_total = E_scattered + E_inc
+plt.imshow(E_total.T, cmap=plt.colormaps["seismic"], vmin=-0.25, vmax=0.25, origin="lower", extent=(sim.x0,sim.x1,sim.y0,sim.y1))
+plt.show()
+
 
 M_x_l_ft = rfft(M_x_l)
 M_x_u_ft = rfft(M_x_u)
