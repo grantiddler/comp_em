@@ -1,0 +1,40 @@
+import matplotlib.pyplot as plt
+import numpy as np
+err = [21.28028925712739, 18.1650784734926, 14.573092397123553, 11.999518468650065, 9.88656452865196, 8.097153438036793, 6.593457948534212, 5.355762793796984, 4.366403629368038, 3.6072835171175694, 3.0582598576252984, 2.6938589971141647, 2.4805309318358786, 2.3787389425121837, 2.349998946441387, 2.363398750627504, 2.397687184865195, 2.4398606700838963, 2.4826773074417505, 2.5224906059481316, 2.557739404743126]
+PML = [2, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
+
+plt.title("RMSE vs PML thickness")
+plt.xlabel("PML thickness (mm)")
+plt.ylabel("RMSE, %")
+err
+plt.plot(np.array(PML) * 2.5e-1, err)
+plt.show()
+
+
+dx =[1, 5e-1, 2.5e-1, 1.25e-1, .625e-1]
+rmse = [12.034104013772563,7.677739971242178, 2.4805309318358786, 1.7613354805510195, 1.6838604590027545]
+
+
+plt.title("RMSE vs step size")
+plt.ylabel("RMSE, %")
+plt.xlabel("Step size (mm)")
+plt.plot(dx, rmse)
+plt.show()
+
+rmse = [62.57971110547557, 18.806371755579686, 5.253762989602297, 2.948317920938864e-09 ,1.9384543783183716, 2.349998946441387]
+pulse_width = [2e-13, 5e-13, 7e-13, 1e-12, 1e-11, 1e-10]
+
+plt.semilogx(pulse_width, rmse)
+plt.title("RMSE vs plane wave pulse width")
+plt.ylabel("RMSE, %")
+plt.xlabel("Plane wave pulse width (s)")
+plt.show()
+
+rmse = [2.349998946441387, 2.278849492214612, 2.263743096315158, 2.257878839791904, 2.254914159906404, 2.253150839740969, 2.2520151458292634, 2.2512327984172398]
+oversample = [1, 2, 3, 4, 5, 6, 7, 8]
+
+plt.plot(oversample, rmse)
+plt.title("RMSE vs time oversample rate")
+plt.ylabel("RMSE, %")
+plt.xlabel("Time oversample rate")
+plt.show()

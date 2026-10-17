@@ -10,8 +10,8 @@ from scipy.integrate import simpson
 from scipy.fft import rfft
 
 
-
-sim = FDTD_2D('PEC', 0, .125, 5e-4, 0, .125, 5e-4,1, pml_cells=20, sigma_max=1)
+oversample = 1
+sim = FDTD_2D('PEC', 0, .125, 1e-3, 0, .125, 1e-3, oversample, pml_cells= 18 , sigma_max=1)
 # sim = FDTD_2D(0, .125, 1e-4, 0, .125, 1e-4,1)
 # sim = FDTD_2D(0, .25, 5e-4, 0, .25, 5e-4,1)
 # sim = FDTD_2D('dielectric', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=50, sigma_max=1)
@@ -22,8 +22,8 @@ Es = []
 Hy = []
 Hx = []
 
-frames = 500
-steps_per_frame = 2
+frames = 250
+steps_per_frame = 3 * oversample
 
 #simulation time samples
 Nt = frames * steps_per_frame
@@ -88,6 +88,41 @@ for j in range(frames):
     # plt.colorbar()
     # plt.show()
 
+E = Es[-1].T
+
+E_scattered = E
+x = sim.X
+y = sim.Y
+
+plt.imshow(E_scattered.T, cmap=plt.colormaps["seismic"], vmin=-0.25, vmax=0.25, origin="lower", extent=(sim.x0,sim.x1,sim.y0,sim.y1))
+plt.show()
+
+kx = np.cos(sim.angle)
+ky = np.sin(sim.angle)
+
+theta = np.linspace(0, np.pi * 2, 100)
+x2 = 0.0625 + np.sin(theta) * .015
+y2 = 0.0625 + np.cos(theta) * .015
+
+E_inc = -sim.source_profile(sim.t*sim.dt - ((y - sim.wave_origin_y) * ky + (x - sim.wave_origin_x) * kx) / sim.c)
+plt.imshow(E_inc.T, cmap=plt.colormaps["seismic"], vmin=-0.25, vmax=0.25, origin="lower", extent=(sim.x0,sim.x1,sim.y0,sim.y1))
+plt.plot(x2,y2, linestyle=(0, (2,3)), linewidth=1)
+plt.title("Incident Feild")
+plt.show()
+
+E_scattered[sim.huygens_x0:sim.huygens_x1+1,sim.huygens_y0+1:sim.huygens_y1] -= E_inc[sim.huygens_x0:sim.huygens_x1+1,sim.huygens_y0+1:sim.huygens_y1]
+plt.imshow(E_scattered.T, cmap=plt.colormaps["seismic"], vmin=-0.25, vmax=0.25, origin="lower", extent=(sim.x0,sim.x1,sim.y0,sim.y1))
+plt.plot(x2,y2, linestyle=(0, (2,3)), linewidth=1)
+plt.title("Scattered Feild")
+plt.show()
+
+E_total = E_scattered + E_inc
+plt.imshow(E_total.T, cmap=plt.colormaps["seismic"], vmin=-0.25, vmax=0.25, origin="lower", extent=(sim.x0,sim.x1,sim.y0,sim.y1))
+plt.plot(x2,y2, linestyle=(0, (2,3)), linewidth=1)
+plt.title("Total Feild")
+
+plt.show()
+
 
 M_x_l_ft = rfft(M_x_l)
 M_x_u_ft = rfft(M_x_u)
@@ -146,10 +181,13 @@ L = L_x * phi_x + L_y * phi_y
 
 
 print(sim.k0)
-mag_E_f0 = L[:, f0] + sim.Z0 * N[:, f0]
+mag_E_f0 = (L[:, f0] + sim.Z0 * N[:, f0]) 
 #echo_width = np.abs(mag_E) ** 2
 
-echo_width = (sim.k0 / (np.pi*4)) * np.abs(mag_E_f0 / source_ft[f0])**2
+echo_width =  (sim.k0 * 5 / (np.pi*8)) * (np.abs(mag_E_f0 / source_ft[f0])**2)
+
+
+
 
 phi_fdtd = theta[:, 0]
 
@@ -259,6 +297,6 @@ ani = animation.FuncAnimation(fig, animate, frames=frames,interval=10, fargs=[Es
 plt.show()
 
 
-# ani.save(filename="2.mp4", writer="ffmpeg", fps=30)
+# ani.save(filename="anim.mp4", writer="ffmpeg", fps=30)
 
 
