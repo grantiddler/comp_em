@@ -10,8 +10,8 @@ from scipy.integrate import simpson
 from scipy.fft import rfft
 
 
-
-sim = FDTD_2D('PEC', 0, .125, 2.5e-4, 0, .125, 2.5e-4, 0.9, pml_cells= 70 , sigma_max=1)
+oversample = 1
+sim = FDTD_2D('PEC', 0, .125, 1e-3, 0, .125, 1e-3, oversample, pml_cells= 18 , sigma_max=1)
 # sim = FDTD_2D(0, .125, 1e-4, 0, .125, 1e-4,1)
 # sim = FDTD_2D(0, .25, 5e-4, 0, .25, 5e-4,1)
 # sim = FDTD_2D('dielectric', 0, .125, 1e-4, 0, .125, 1e-4,1, pml_cells=50, sigma_max=1)
@@ -22,8 +22,8 @@ Es = []
 Hy = []
 Hx = []
 
-frames = 500
-steps_per_frame = 5
+frames = 250
+steps_per_frame = 3 * oversample
 
 #simulation time samples
 Nt = frames * steps_per_frame
@@ -38,10 +38,10 @@ source_ft = rfft(source_time)
 ts = []
 
 
-x0 = 100
-x1 = sim.nx - 100
-y0 = 100
-y1 = sim.ny - 100
+x0 = 25
+x1 = sim.nx - 25
+y0 = 25
+y1 = sim.ny - 25
 
 
 xs = np.linspace(x0, x1, x1-x0) * sim.dx
@@ -184,7 +184,10 @@ print(sim.k0)
 mag_E_f0 = (L[:, f0] + sim.Z0 * N[:, f0]) 
 #echo_width = np.abs(mag_E) ** 2
 
-echo_width = np.sqrt(1/2) * (sim.k0 * 5 / (np.pi*8)) * (np.abs(mag_E_f0 / source_ft[f0])**2)
+echo_width =  (sim.k0 * 5 / (np.pi*8)) * (np.abs(mag_E_f0 / source_ft[f0])**2)
+
+
+
 
 phi_fdtd = theta[:, 0]
 

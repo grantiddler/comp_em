@@ -208,10 +208,10 @@ class FDTD_2D:
         self.beta = self.permittivity / self.dt + self.conductivity / 2
 
 
-        self.huygens_x0 = 160
-        self.huygens_x1 = self.nx - 160
-        self.huygens_y0 = 160
-        self.huygens_y1 = self.ny - 160
+        self.huygens_x0 = 40
+        self.huygens_x1 = self.nx - 40
+        self.huygens_y0 = 40
+        self.huygens_y1 = self.ny - 40
 
         self.wave_origin_x = 0#.25
         self.wave_origin_y = 0#.25
@@ -298,8 +298,8 @@ class FDTD_2D:
 
     def source_profile(self, t):
         f0 = self.f0       # 300 MHz
-        t0 = 0.25e-9      # pulse centered at 3 ns
-        tau = 0.5e-10     # pulse width
+        t0 = 0.25e-10      # pulse centered at 3 ns
+        tau = 1e-12     # pulse width
 
         return (
             (t > 0) * np.sin(2 * np.pi * f0 * t) / 5
@@ -439,10 +439,10 @@ class FDTD_2D:
 
 
         # lazy workaround for indexing error
-        self.E_zx_next[x0-1:x0+1, y0] = lazy1
-        self.E_zy_next[x0-1:x0+1, y0] = lazy2
-        self.E_zx_next[x0-1:x0+1, y1] = lazy3
-        self.E_zy_next[x0-1:x0+1, y1] = lazy4
+        # self.E_zx_next[x0-1:x0+1, y0] = lazy1
+        # self.E_zy_next[x0-1:x0+1, y0] = lazy2
+        # self.E_zx_next[x0-1:x0+1, y1] = lazy3
+        # self.E_zy_next[x0-1:x0+1, y1] = lazy4
 
 
 
