@@ -1,14 +1,27 @@
 import pygmsh
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.special import jv, hankel2
+from scipy.sparse import lil_matrix
+from scipy.sparse.linalg import spsolve
+import matplotlib.tri as mtri
 
 with pygmsh.occ.Geometry() as geom:
-    geom.characteristic_length_min = 0.1
-    geom.characteristic_length_max = 5
+    R = 0.12
+    a = 0.015
+    tol = 1e-5
+    c0 = 299792458
+    f = 10e9
+    k0 = 2 * np.pi * f / c0
+    gamma = 1j * k0 + 1 / (2 * R)
+
+    # resolution l_0= 0.03m
+    geom.characteristic_length_min = 0.0015
+    geom.characteristic_length_max = 0.002
 
 
-    disk1 = geom.add_disk([0, 0.0, 0.0], 0.5)
-    disk2 = geom.add_disk([0, 0.0, 0.0], 0.015)
+    disk1 = geom.add_disk([0, 0.0, 0.0], R)
+    disk2 = geom.add_disk([0, 0.0, 0.0], a)
 
     # flat = geom.boolean_fragments(disk1, disk2)
     flat = geom.boolean_difference(disk1, disk2)
@@ -17,43 +30,55 @@ with pygmsh.occ.Geometry() as geom:
 
     mesh = geom.generate_mesh()
 
+    #----------------#
+    # Identify outer ABC edges
+    #----------------#
+
+    outer_edges = []
+
+    for block in mesh.cells:
+        if block.type != "line":
+            continue
+
+        for edge in block.data:
+            i, j = edge
+
+            ri = np.linalg.norm(mesh.points[i, :2])
+            rj = np.linalg.norm(mesh.points[j, :2])
+
+            if abs(ri - R) < tol and abs(rj - R) < tol:
+                outer_edges.append((i, j))
+
+print("Number of outer ABC edges:", len(outer_edges))
 
 
 
+#----------------#
+# Identify inner boundary of cylinder
+#----------------#
+N = len(mesh.points)
 
-# print(mesh.points)
+inner_nodes = set()
 
-fig = plt.figure()
-ax = fig.add_subplot(projection='3d')
+for block in mesh.cells:
+    if block.type != "line":
+        continue
 
+    for edge in block.data:
+        for node in edge:
+            r = np.linalg.norm(mesh.points[node, :2])
 
-colors = ["blue", "purple"]
+            if abs(r - a) < tol:
+                inner_nodes.add(int(node))
 
-segments = []
-for i in mesh.cells[2].data:
-    segments.append(i[0])
-seg = -1
-
-boundaries = []
-for i in mesh.cells[0].data:
-    if(i[0] == seg + 1 and (len(mesh.cells[2]) > 1 or seg == -1)):
-        seg += 1
-        boundaries.append([])
-    boundaries[seg].append(i[0])
-    # plt.plot()
-    # plt.plot([mesh.points[i[0]][0], mesh.points[i[1]][0]], [mesh.points[i[0]][1], mesh.points[i[1]][1]], color=colors[seg])
-
-
-
-Btype=['d', 'd']
-Bval=[1, 0]
+print("Number of inner PEC nodes:", len(inner_nodes))
 
 
 
 N = len(mesh.points)
 
-K = np.zeros([N, N])
-B = np.zeros([N, 1])
+K = lil_matrix((N, N), dtype=complex) #makes sparse matrix
+B = np.zeros((N, 1), dtype=complex)
 
 
 for i in mesh.cells[1].data:
@@ -63,27 +88,9 @@ for i in mesh.cells[1].data:
     #     color="black"
     #     e_r = 9
 
-    B1 = False
-    B2 = False
-    B3 = False
 
-    boundary_value = 1
-    for j in range(len(boundaries)):
-        B1 = B1 or i[0] in boundaries[j]
-        B2 = B2 or i[1] in boundaries[j]
-        B3 = B3 or i[2] in boundaries[j]
-        # 
-        if Btype[j] == 'd' and (i[0] in boundaries[j] or i[1] in boundaries[j] or i[2] in boundaries[j]):
-            color = "purple"
-            boundary_value = Bval[j]
-
-        
-    D = (mesh.points[i[2]][0] - mesh.points[i[1]][0]) * (mesh.points[i[1]][1] - mesh.points[i[0]][1]) + (mesh.points[i[1]][0] - mesh.points[i[0]][0]) * (mesh.points[i[1]][1] - mesh.points[i[2]][1])
-    Area = np.abs(D)/2
-    inner_product = Area / 12
-
-    Beta = 0
-    Alpha = 1e-12
+    Alpha = 1.0
+    Beta = -k0**2 * e_r
 
     i1 = i[0]
     i2 = i[1]
@@ -93,13 +100,21 @@ for i in mesh.cells[1].data:
     p2 = mesh.points[i2]
     p3 = mesh.points[i3]
 
-    dN1dx = (p2[1] - p3[1])
-    dN2dx = (p3[1] - p1[1])
-    dN3dx = (p1[1] - p2[1])
 
-    dN1dy = (p3[0] - p2[0])
-    dN2dy = (p1[0] - p3[0])
-    dN3dy = (p2[0] - p1[0])
+    #shape-function derivatives
+    D = ((p2[0] - p1[0]) * (p3[1] - p1[1])
+        - (p3[0] - p1[0]) * (p2[1] - p1[1]))
+
+    Area = abs(D) / 2
+    inner_product = Area / 12
+
+    dN1dx = (p2[1] - p3[1]) / D
+    dN2dx = (p3[1] - p1[1]) / D
+    dN3dx = (p1[1] - p2[1]) / D
+
+    dN1dy = (p3[0] - p2[0]) / D
+    dN2dy = (p1[0] - p3[0]) / D
+    dN3dy = (p2[0] - p1[0]) / D
 
     N1N2 = (dN1dx * dN2dx) + (dN1dy * dN2dy)
     N2N3 = (dN2dx * dN3dx) + (dN2dy * dN3dy)
@@ -111,19 +126,6 @@ for i in mesh.cells[1].data:
     N3N3 = (dN3dx * dN3dx) + (dN3dy * dN3dy)
 
 
-    if B1:
-        B[i1] -= N1N1 * boundary_value * Alpha
-        B[i2] -= N1N2 * boundary_value * Alpha
-        B[i3] -= N3N1 * boundary_value * Alpha
-    if B2:
-        B[i1] -= N1N2 * boundary_value * Alpha
-        B[i2] -= N2N2 * boundary_value * Alpha
-        B[i3] -= N2N3 * boundary_value * Alpha
-    if B3:
-        B[i1] -= N3N1 * boundary_value * Alpha
-        B[i2] -= N2N3 * boundary_value * Alpha
-        B[i3] -= N3N3 * boundary_value * Alpha
-    
 
 
     K[i1, i1] += inner_product * 2 * Beta + Area * Alpha * N1N1
@@ -144,79 +146,278 @@ for i in mesh.cells[1].data:
     # plt.plot([p1[0], p2[0]], [p1[1], p2[1]], '--',color=color)
     # plt.plot([p2[0], p3[0]], [p2[1], p3[1]], '--',color=color)
     # plt.plot([p3[0], p1[0]], [p3[1], p1[1]], '--',color=color)
- 
+
+for i, j in outer_edges:
+
+    p1 = mesh.points[i, :2]
+    p2 = mesh.points[j, :2]
+
+    L = np.linalg.norm(p2 - p1)
+
+    K_edge = gamma * L / 6 * np.array([
+        [2, 1],
+        [1, 2]
+    ])
+
+    # Incident plane wave evaluated at edge midpoint
+    midpoint = (p1 + p2) / 2
+
+    x_mid = midpoint[0]
+    nx = x_mid / np.linalg.norm(midpoint)
+
+    E_inc = np.exp(-1j * k0 * x_mid)
+
+    g = (gamma - 1j * k0 * nx) * E_inc
+
+    # Midpoint approximation to boundary excitation
+    B[i, 0] += g * L / 2
+    B[j, 0] += g * L / 2
+
+    nodes = [i, j]
+
+    #adds K_edge to global stiffness matrix K
+    for local_i in range(2):
+        for local_j in range(2):
+            K[nodes[local_i], nodes[local_j]] += K_edge[local_i, local_j]
 
 
+#----------------#
+# Apply PEC Dirichlet conditions
+#----------------#
 
-Nd = 0
-pts = mesh.points.copy()
+# TMz total field: Ez = 0 on PEC
+pec_nodes = np.array(sorted(inner_nodes), dtype=int)
 
+# Keep only unknown (non-PEC) nodes
+free_nodes = np.setdiff1d(np.arange(N), pec_nodes)
 
-for i in range(len(boundaries)):
-    if Btype[i] == 'd':
-        for j in range(len(boundaries[i])):
-            ax.scatter(mesh.points[boundaries[i][j]][0], mesh.points[boundaries[i][j]][1], Bval[i], 'o', color="black")
-        
+# Convert sparse matrix from LIL to CSR
+K = K.tocsr()
 
+# Apply PEC Dirichlet boundary conditions
+K_reduced = K[free_nodes, :][:, free_nodes]
 
+B_reduced = B[free_nodes, 0]
 
+print("Solving sparse FEM system...", flush=True)
 
-while True:
-    run = False
-    m = 0
-    for i in range(len(boundaries)):
-        if Btype[i] == 'd' and boundaries[i] != []:
-            m = max(m, max(boundaries[i]))
-            run = True
+E_reduced = spsolve(K_reduced, B_reduced)
 
-    for i in range(len(boundaries)):
-        if Btype[i] == 'd' and (m in boundaries[i]):
-            boundaries[i].remove(m)
-
-    if not run:
-        break
-
-    K[m:-1,:] = K[m+1:,:]
-    K[:,m:-1] = K[:,m+1:]
-    B[m:-1] = B[m+1:]
-    pts[m:-1] = pts[m+1:]
-    Nd += 1
+print("Sparse matrix solved!", flush=True)
 
 
-    
+# Reconstruct field at all original mesh nodes using sparse matrix
+#spsolve() returns a 1D array
+E = np.zeros(N, dtype=complex)
+E[free_nodes] = E_reduced
+E[pec_nodes] = 0
 
+#calcuate scattered field
+E_inc_nodes = np.exp(-1j * k0 * mesh.points[:, 0])
 
+E_scat = E - E_inc_nodes
 
+# print(
+#     "Maximum PEC boundary field:",
+#     np.max(np.abs(E[pec_nodes]))
+# )
+outer_nodes = np.unique(np.array(outer_edges).flatten())
 
+#Analytical TMz scattering for PEC cylinder
+x = mesh.points[:, 0]
+y = mesh.points[:, 1]
 
-if Nd != 0:
-    K = K[0:-Nd, 0:-Nd]
-    B = B[0:-Nd]
-    pts = pts[0:-Nd]
+rho = np.sqrt(x**2 + y**2)
+phi = np.arctan2(y, x)
 
-# for i in mesh.cells[1].data:
-#     if(0 in i):
-#         print(i)
-E = np.linalg.inv(K) @ B
-print(E)
+Nh = 50
 
+E_scat_analytical = np.zeros(N, dtype=complex)
 
-# x = []
-# I = 0
+for n in range(-Nh, Nh + 1):
 
-for i in mesh.points:
-    ax.scatter(i[0], i[1], 0,'o', color="red")
+    an = -((-1j)**n) * (jv(n, k0 * a) / hankel2(n, k0 * a))
 
-for i in range(len(pts)):
-    ax.scatter(pts[i][0], pts[i][1], E[i]/4000,'o', color="purple")
+    E_scat_analytical += (an * hankel2(n, k0 * rho) * np.exp(1j * n * phi))
 
+E_total_analytical = E_inc_nodes + E_scat_analytical
 
+error = E_scat - E_scat_analytical
 
+# Entire computational domain
+relative_rmse_full = np.sqrt(np.sum(np.abs(error)**2) / np.sum(np.abs(E_scat_analytical)**2))
 
+# Fixed comparison region
+comparison_region = ((rho >= a - 1e-8) & (rho <= 0.04))
+
+relative_rmse_fixed = np.sqrt(np.sum(np.abs(error[comparison_region])**2) / np.sum(np.abs(E_scat_analytical[comparison_region])**2))
+
+print(f"Full-domain RMSE: {relative_rmse_full:.4%}")
+print(f"Fixed-region RMSE: {relative_rmse_fixed:.4%}")
+
+triangles = mesh.get_cells_type("triangle")
+fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+fields = [
+    ("FEM Scattered Field", E_scat),
+    ("Analytical Scattered Field", E_scat_analytical),
+    ("Absolute Error", np.abs(error))
+]
+
+for ax, (title, field) in zip(axes, fields):
+
+    values = np.abs(field) if title == "Absolute Error" else np.real(field)
+
+    is_error = title == "Absolute Error"
+
+    im = ax.tripcolor(
+        mesh.points[:, 0],
+        mesh.points[:, 1],
+        triangles,
+        values,
+        shading="gouraud",
+        cmap="viridis" if is_error else "RdBu_r",
+        vmin=None if is_error else -1,
+        vmax=None if is_error else 1
+    )
+
+    fig.colorbar(im, ax=ax, shrink=0.75)
+    ax.set_title(title)
+    ax.set_aspect("equal")
+    ax.set_xlabel("x (m)")
+    ax.set_ylabel("y (m)")
+
+plt.tight_layout()
 plt.show()
 
-# for i in mesh.points:
-#     if np.sqrt(i[0] ** 2 + i[1] ** 2) <= .015001:
-#         plt.plot(i[0], i[1], 'o', color="black")
-#         # plt.plot(i[0], i[1], 'o', color="black")
-    # else:
+
+# Angular sampling
+Nphi = 360
+angles = np.linspace(0, 2*np.pi, Nphi, endpoint=False)
+
+# Observation circle inside ABC
+r_obs = 0.04
+
+x_obs = r_obs * np.cos(angles)
+y_obs = r_obs * np.sin(angles)
+
+# ----------------------------------------
+# Interpolate FEM scattered field
+# onto observation circle
+# ----------------------------------------
+
+triang = mtri.Triangulation(
+    mesh.points[:, 0],
+    mesh.points[:, 1],
+    triangles
+)
+
+interp_real = mtri.LinearTriInterpolator(triang, np.real(E_scat))
+interp_imag = mtri.LinearTriInterpolator(triang, np.imag(E_scat))
+
+E_obs_real = interp_real(x_obs, y_obs)
+E_obs_imag = interp_imag(x_obs, y_obs)
+
+if np.any(np.ma.getmaskarray(E_obs_real)) or \
+   np.any(np.ma.getmaskarray(E_obs_imag)):
+    raise ValueError("Observation circle extends outside FEM mesh")
+
+E_obs = (
+    np.asarray(E_obs_real)
+    + 1j * np.asarray(E_obs_imag)
+)
+
+# ----------------------------------------
+# Extract FEM cylindrical coefficients
+# ----------------------------------------
+
+# Limit expansion to resolved angular modes
+Nfit = 16
+n_modes = np.arange(-Nfit, Nfit + 1)
+
+# Fourier coefficients of field on observation circle
+fourier_coeff = np.fft.fft(E_obs) / Nphi
+
+# E_scat(r,phi) = sum c_n H_n^(2)(kr) exp(jn phi)
+c_fem = np.array([
+    fourier_coeff[n % Nphi] / hankel2(n, k0 * r_obs)
+    for n in n_modes
+])
+
+# ----------------------------------------
+# Analytical coefficients (50 harmonics
+# in each direction)
+# ----------------------------------------
+
+n_analytical = np.arange(-50, 51)
+
+c_analytical = np.array([
+    -((-1j)**int(n)) *
+    jv(n, k0*a) / hankel2(n, k0*a)
+    for n in n_analytical
+])
+
+# ----------------------------------------
+# Far-field angular amplitudes
+# ----------------------------------------
+
+F_fem = np.zeros(Nphi, dtype=complex)
+F_analytical = np.zeros(Nphi, dtype=complex)
+
+for n, cn in zip(n_modes, c_fem):
+    F_fem += cn * np.exp(1j*n*np.pi/2) * np.exp(1j*n*angles)
+
+for n, cn in zip(n_analytical, c_analytical):
+    F_analytical += cn * np.exp(1j*n*np.pi/2) * np.exp(1j*n*angles)
+
+# ----------------------------------------
+# Bistatic echo-width (meters)
+# ----------------------------------------
+
+sigma_fem = (4/k0) * np.abs(F_fem)**2
+sigma_analytical = (4/k0) * np.abs(F_analytical)**2
+
+# ----------------------------------------
+# Echo-width RMSE
+# ----------------------------------------
+
+rmse_echo = np.sqrt(
+    np.sum((sigma_fem - sigma_analytical)**2)
+    / np.sum(sigma_analytical**2)
+)
+
+print(f"Bistatic echo-width RMSE: {rmse_echo:.4%}")
+
+# ----------------------------------------
+# Plot results
+# ----------------------------------------
+
+angles_deg = np.degrees(angles)
+
+fig, ax = plt.subplots(figsize=(8, 5))
+
+ax.plot(
+    angles_deg,
+    sigma_analytical,
+    label="Analytical",
+    linewidth=2
+)
+
+ax.plot(
+    angles_deg,
+    sigma_fem,
+    "--",
+    label="FEM",
+    linewidth=1.5
+)
+
+ax.set_xlabel("Scattering angle phi (degrees)")
+ax.set_ylabel("Bistatic echo-width (m)")
+ax.set_title("TMz PEC Cylinder - Bistatic Echo-Width at 10 GHz")
+
+ax.set_xlim(0, 360)
+ax.grid(True)
+ax.legend()
+
+plt.tight_layout()
+plt.show()
