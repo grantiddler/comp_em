@@ -1,13 +1,17 @@
 import pygmsh
 import matplotlib.pyplot as plt
 import numpy as np
-from scipy.special import jv, hankel2
+from scipy.special import jv, jvp, hankel2, h2vp
 from scipy.sparse import lil_matrix
 from scipy.sparse.linalg import spsolve
 import matplotlib.tri as mtri
 
+scatterer = ["Dielectric", "PEC"][0]
+
+e_c = 9
+
 with pygmsh.occ.Geometry() as geom:
-    R = 0.12
+    R = 0.1
     a = 0.015
     tol = 1e-5
     c0 = 299792458
@@ -16,15 +20,17 @@ with pygmsh.occ.Geometry() as geom:
     gamma = 1j * k0 + 1 / (2 * R)
 
     # resolution l_0= 0.03m
-    geom.characteristic_length_min = 0.0015
-    geom.characteristic_length_max = 0.002
+    # geom.characteristic_length_min = 0.0015
+    geom.characteristic_length_max = 0.000125
 
-
+    
     disk1 = geom.add_disk([0, 0.0, 0.0], R)
     disk2 = geom.add_disk([0, 0.0, 0.0], a)
 
-    # flat = geom.boolean_fragments(disk1, disk2)
-    flat = geom.boolean_difference(disk1, disk2)
+    if scatterer == "Dielectric":
+        flat = geom.boolean_fragments(disk1, disk2)
+    else:
+        flat = geom.boolean_difference(disk1, disk2)
 
 
 
@@ -60,18 +66,19 @@ N = len(mesh.points)
 
 inner_nodes = set()
 
-for block in mesh.cells:
-    if block.type != "line":
-        continue
+if scatterer == "PEC":
+    for block in mesh.cells:
+        if block.type != "line":
+            continue
 
-    for edge in block.data:
-        for node in edge:
-            r = np.linalg.norm(mesh.points[node, :2])
+        for edge in block.data:
+            for node in edge:
+                r = np.linalg.norm(mesh.points[node, :2])
 
-            if abs(r - a) < tol:
-                inner_nodes.add(int(node))
+                if abs(r - a) < tol:
+                    inner_nodes.add(int(node))
 
-print("Number of inner PEC nodes:", len(inner_nodes))
+    print("Number of inner PEC nodes:", len(inner_nodes))
 
 
 
@@ -82,11 +89,10 @@ B = np.zeros((N, 1), dtype=complex)
 
 
 for i in mesh.cells[1].data:
-    color = "red"
+
     e_r = 1
-    # if np.sqrt(((mesh.points[i[0]][0] + mesh.points[i[1]][0] + mesh.points[i[2]][0])/3) ** 2 + ((mesh.points[i[0]][1] + mesh.points[i[1]][1] + mesh.points[i[2]][1])/3) ** 2) <= .015:
-    #     color="black"
-    #     e_r = 9
+    if np.sqrt(((mesh.points[i[0]][0] + mesh.points[i[1]][0] + mesh.points[i[2]][0])/3) ** 2 + ((mesh.points[i[0]][1] + mesh.points[i[1]][1] + mesh.points[i[2]][1])/3) ** 2) <= .015:
+        e_r = e_c
 
 
     Alpha = 1.0
@@ -236,7 +242,15 @@ E_scat_analytical = np.zeros(N, dtype=complex)
 
 for n in range(-Nh, Nh + 1):
 
-    an = -((-1j)**n) * (jv(n, k0 * a) / hankel2(n, k0 * a))
+    if scatterer == "Dielectric":
+        kd = np.sqrt(e_c) * k0
+        
+        an = 1j * (1j ** n) * ((jvp(n, k0*a)*jv(n, kd*a)) - (np.sqrt(e_c)*jv(n, k0*a)*jvp(n, kd*a))
+                                ) / ((h2vp(n, k0*a)*jv(n, kd*a))- (np.sqrt(e_c)*hankel2(n, k0*a)*jvp(n, kd*a))) 
+    
+    else:
+        an = -((-1j)**n) * (jv(n, k0 * a) / hankel2(n, k0 * a))
+
 
     E_scat_analytical += (an * hankel2(n, k0 * rho) * np.exp(1j * n * phi))
 
@@ -256,19 +270,30 @@ print(f"Full-domain RMSE: {relative_rmse_full:.4%}")
 print(f"Fixed-region RMSE: {relative_rmse_fixed:.4%}")
 
 triangles = mesh.get_cells_type("triangle")
-fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+fig, axes = plt.subplots(2,3, figsize=(15, 5))
+axes = np.reshape(axes, (1,6))
 
 fields = [
-    ("FEM Scattered Field", E_scat),
-    ("Analytical Scattered Field", E_scat_analytical),
-    ("Absolute Error", np.abs(error))
+    ("Scattered Field Magnitude", np.abs(E_scat), "viridis", "normalized field intensity (|E| / |E0|)"),
+    ("Instantanious Scattered Field (phase = 0)", np.real(E_scat), "RdBu_r", "normalized field intensity (E / |E0|)"),
+    ("Scattered Field Phase", np.angle(E_scat), "twilight", "field phase (radians)"),
+
+    ("Total Field Magnitude", np.abs(E), "viridis", "normalized field intensity (|E| / |E0|)"),
+    ("Instantanious Total Field (phase = 0)", np.real(E), "RdBu_r", "normalized field intensity (E / |E0|)"),
+    ("Total Field Phase", np.angle(E), "twilight", "field phase (radians)"),
+    
 ]
 
-for ax, (title, field) in zip(axes, fields):
+theta = np.linspace(0, np.pi * 2, 100)
+x_circ = np.sin(theta) * a
+y_circ = np.cos(theta) * a
 
-    values = np.abs(field) if title == "Absolute Error" else np.real(field)
 
-    is_error = title == "Absolute Error"
+for ax, (title, field, color, clabel) in zip(axes[0], fields):
+    values = field
+
+    # is_error = title == "Absolute Error"
 
     im = ax.tripcolor(
         mesh.points[:, 0],
@@ -276,16 +301,19 @@ for ax, (title, field) in zip(axes, fields):
         triangles,
         values,
         shading="gouraud",
-        cmap="viridis" if is_error else "RdBu_r",
-        vmin=None if is_error else -1,
-        vmax=None if is_error else 1
+        cmap=color,
+        vmin= -np.pi if ("Phase" in title) else (0 if "Magnitude" in title else -1),
+        vmax= np.pi if ("Phase" in title) else (None if "Magnitude" in title else 1)
     )
 
-    fig.colorbar(im, ax=ax, shrink=0.75)
+    fig.colorbar(im, ax=ax, shrink=0.75, label=clabel)
     ax.set_title(title)
     ax.set_aspect("equal")
     ax.set_xlabel("x (m)")
     ax.set_ylabel("y (m)")
+
+    # if scatterer == "Dielectric":
+    ax.plot(x_circ,y_circ, '--', color="black")
 
 plt.tight_layout()
 plt.show()
@@ -296,7 +324,7 @@ Nphi = 360
 angles = np.linspace(0, 2*np.pi, Nphi, endpoint=False)
 
 # Observation circle inside ABC
-r_obs = 0.04
+r_obs = 0.099
 
 x_obs = r_obs * np.cos(angles)
 y_obs = r_obs * np.sin(angles)
@@ -351,11 +379,18 @@ c_fem = np.array([
 
 n_analytical = np.arange(-50, 51)
 
-c_analytical = np.array([
-    -((-1j)**int(n)) *
-    jv(n, k0*a) / hankel2(n, k0*a)
-    for n in n_analytical
-])
+if scatterer == "PEC":
+    c_analytical = np.array([
+        -((-1j)**int(n)) *
+        jv(n, k0*a) / hankel2(n, k0*a)
+        for n in n_analytical
+    ])
+else:
+    c_analytical = np.array([
+        (-1j ** n) * ((jvp(n, k0*a)*jv(n, kd*a)) - (np.sqrt(e_c)*jv(n, k0*a)*jvp(n, kd*a))
+                                    ) / ((h2vp(n, k0*a)*jv(n, kd*a))- (np.sqrt(e_c)*hankel2(n, k0*a)*jvp(n, kd*a))) 
+        for n in n_analytical
+    ])
 
 # ----------------------------------------
 # Far-field angular amplitudes
@@ -364,12 +399,19 @@ c_analytical = np.array([
 F_fem = np.zeros(Nphi, dtype=complex)
 F_analytical = np.zeros(Nphi, dtype=complex)
 
+
 for n, cn in zip(n_modes, c_fem):
     F_fem += cn * np.exp(1j*n*np.pi/2) * np.exp(1j*n*angles)
+
+
+if scatterer == "Dielectric":
+    angles += np.pi
 
 for n, cn in zip(n_analytical, c_analytical):
     F_analytical += cn * np.exp(1j*n*np.pi/2) * np.exp(1j*n*angles)
 
+if scatterer == "Dielectric":
+    angles -= np.pi
 # ----------------------------------------
 # Bistatic echo-width (meters)
 # ----------------------------------------
@@ -413,11 +455,25 @@ ax.plot(
 
 ax.set_xlabel("Scattering angle phi (degrees)")
 ax.set_ylabel("Bistatic echo-width (m)")
-ax.set_title("TMz PEC Cylinder - Bistatic Echo-Width at 10 GHz")
+ax.set_title(f"TMz {scatterer} Cylinder - Bistatic Echo-Width at 10 GHz")
 
 ax.set_xlim(0, 360)
 ax.grid(True)
 ax.legend()
 
 plt.tight_layout()
+plt.show()
+
+
+plt.polar(
+    angles_deg * np.pi / 180,
+    sigma_analytical,
+)
+
+plt.polar(
+    angles_deg * np.pi / 180,
+    sigma_fem,
+    "--",
+)
+
 plt.show()
