@@ -3,6 +3,7 @@ import numpy as np
 from numpy.linalg import norm
 from scipy.special import hankel1, hankel2
 
+from scipy.special import jv, jvp, h2vp
 ### EDGE GENERATION
 
 radius = 0.015
@@ -13,7 +14,7 @@ num_points = int(max(3, np.ceil(2 * np.pi * radius / fineness) ))
 
 print(num_points)
 angles = np.linspace(0, np.pi * 2,num_points + 1)[0:-1]
-points = radius * np.array([np.cos(angles), np.sin(angles)])
+points = radius  * np.array([np.cos(angles), np.sin(angles)])
 
 edges = np.array([np.arange(0, num_points), np.arange(1, num_points+1)])
 edges[1,-1] = 0
@@ -73,7 +74,7 @@ if scatterer == "PEC":
                 Z[m,n] = k0 * Z0 * len_edge * len_edge2 * hankel2(0, k0 * norm( midpoints[:,m] - midpoints[:,n])) / 4
                 Z[n,m] = Z[m, n]
 else :
-    er = 9
+    er = 1
     mr = 1
 
     Gi = lambda r:  hankel2(0, k0 * np.abs(r)) / 4j
@@ -96,11 +97,14 @@ else :
 
         len_edge = norm(points[:,pt_a1] - points[:,pt_a2])
         Sm[m] = len_edge
-        for n in range(m+1):
+        for n in range(m + 1):
 
             if m == n:
-                A0[m,m] = (len_edge / 2) - len_edge * len_edge * ( 1 - 2j * np.log(k0 * gamma * len_edge / (4 * np.exp(1))) / np.pi) / 4j
-                Ai[m,m] = (len_edge / 2) + len_edge * len_edge * ( 1 - 2j * np.log(k0 * np.sqrt(er * mr) * gamma * len_edge / (4 * np.exp(1))) / np.pi) / 4j
+                A0[m,m] = len_edge / 2
+                Ai[m,m] = len_edge / 2
+                
+                B0[m,m] = len_edge * len_edge * k0 * Z0 * ( 1 - 2j * np.log(k0 * gamma * len_edge / (4 * np.exp(1))) / np.pi) / 4
+                Bi[m,m] = len_edge * len_edge * k0 * Z0 * ( 1 - 2j * np.log(k0 * np.sqrt(er * mr) * gamma * len_edge / (4 * np.exp(1))) / np.pi) / 4
 
                 # Z[m,n] =  k0 * Z0 * len_edge * len_edge * ( 1 - 2j * np.log(k0 * gamma * len_edge / (4 * np.exp(1))) / np.pi)  # exp can maybe be removed, turned to -1, don't know if that will make problem conditioning worse.
             else:
@@ -109,25 +113,24 @@ else :
 
                 len_edge2 = norm(points[:,pt_b1] - points[:,pt_b2])
 
-                A0[m,n] = len_edge * len_edge2 * hankel2(0, k0 * norm( midpoints[:,m] - midpoints[:,n])) / 4j
-                Ai[m,n] = len_edge * len_edge2 * hankel2(0, k0 * np.sqrt(er * mr) * norm( midpoints[:,m] - midpoints[:,n])) / 4j
+                NDOT = np.inner(normal, midpoints[:, m] - midpoints[:, n]) / norm(midpoints[:, m] - midpoints[:, n])
+
+                A0[m,n] = - k0 * len_edge * len_edge2 * NDOT * hankel2(1, k0 * norm( midpoints[:,m] - midpoints[:,n])) / 4j
+                Ai[m,n] = k0 * np.sqrt(er * mr) * len_edge * len_edge2 * NDOT * hankel2(1, k0 * np.sqrt(er * mr) * norm( midpoints[:,m] - midpoints[:,n])) / 4j
 
                 A0[n, m] = A0[m, n]
                 Ai[n, m] = Ai[m, n] 
 
 
 
-                NDOT = np.inner(normal, midpoints[:, m] - midpoints[:, n]) / norm(midpoints[:, m] - midpoints[:, n])
-                NDOT = np.inner(normal, midpoints[:, m] - midpoints[:, n]) / norm(midpoints[:, m] - midpoints[:, n])
 
-
-                B0[m,n] = Z0 * k0 * k0 * len_edge * len_edge2 * NDOT *  hankel2(1, k0 * norm( midpoints[:,m] - midpoints[:,n])) / 4
-                Bi[m,n] = mr * Z0 * k0 * k0 * np.sqrt(er * mr) * len_edge * len_edge2 * NDOT *  hankel2(1, k0 * np.sqrt(er * mr) * norm( midpoints[:,m] - midpoints[:,n])) / 4
+                B0[m,n] = Z0 * k0 * len_edge * len_edge2 * hankel2(0, k0 * norm( midpoints[:,m] - midpoints[:,n])) / 4
+                Bi[m,n] = mr * Z0 * k0 * np.sqrt(er * mr) * len_edge * len_edge2 *  hankel2(0, k0 * np.sqrt(er * mr) * norm( midpoints[:,m] - midpoints[:,n])) / 4
                 
                 B0[n, m] = B0[m, n]
                 Bi[n, m] = Bi[m, n]
     
-    Z = 1j * (A0 + B0 @ np.linalg.inv(Bi) @ Ai)
+    Z = (A0 + B0 @ np.linalg.inv(Bi) @ Ai)
 
 
 ### SOLVE SYSTEM
@@ -139,9 +142,34 @@ J = np.linalg.inv(Z) @ (Sm * E_inc)
 
 ## DISPLAY THINGS:
 
-plt.polar(angles, np.abs(J), 'o')
-# plt.polar(angles, np.angle(J))
+# plt.polar(angles, np.abs(J))
+J -= E_inc
+plt.polar(angles, np.abs(J))
+
+
+
+
+Nh = 50
+a = radius
+E_scat_analytical = np.zeros(np.size(angles), dtype=complex)
+
+for n in range(-Nh, Nh + 1):
+
+    if scatterer == "dielectric":
+        kd = np.sqrt(er) * k0
+        
+        an = 1j * (1j ** n) * ((jvp(n, k0*a)*jv(n, kd*a)) - (np.sqrt(er)*jv(n, k0*a)*jvp(n, kd*a))
+                                ) / ((h2vp(n, k0*a)*jv(n, kd*a))- (np.sqrt(er)*hankel2(n, k0*a)*jvp(n, kd*a))) 
+    
+    else:
+        an = -((-1j)**n) * (jv(n, k0 * a) / hankel2(n, k0 * a))
+
+
+    E_scat_analytical += (an * hankel2(n, k0 * a) * np.exp(1j * n * (angles)))
+
+plt.plot(angles, np.abs((E_scat_analytical)))
 plt.show()
+
 
 sz = 300
 a = -0.1
