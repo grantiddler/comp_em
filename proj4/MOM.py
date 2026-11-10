@@ -74,7 +74,7 @@ if scatterer == "PEC":
                 Z[m,n] = k0 * Z0 * len_edge * len_edge2 * hankel2(0, k0 * norm( midpoints[:,m] - midpoints[:,n])) / 4
                 Z[n,m] = Z[m, n]
 else :
-    er = 1
+    er = 9
     mr = 1
 
     Gi = lambda r:  hankel2(0, k0 * np.abs(r)) / 4j
