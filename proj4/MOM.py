@@ -8,7 +8,7 @@ from scipy.special import jv, jvp, h2vp
 
 radius = 0.015
 
-fineness = 0.001 # maximum edge length
+fineness = 0.0001 # maximum edge length
 
 num_points = int(max(3, np.ceil(2 * np.pi * radius / fineness) ))
 
@@ -77,7 +77,7 @@ else :
     er = 9
     mr = 1
 
-    Gi = lambda r:  hankel2(0, k0 * np.abs(r)) / 4j
+    Gi = lambda r:  hankel2(0, k0 * np.sqrt(er * mr) * np.abs(r)) / 4j
     # Gi = lambda r: 0
 
 
@@ -125,7 +125,7 @@ else :
 
 
                 B0[m,n] = Z0 * k0 * len_edge * len_edge2 * hankel2(0, k0 * norm( midpoints[:,m] - midpoints[:,n])) / 4
-                Bi[m,n] = mr * Z0 * k0 * np.sqrt(er * mr) * len_edge * len_edge2 *  hankel2(0, k0 * np.sqrt(er * mr) * norm( midpoints[:,m] - midpoints[:,n])) / 4
+                Bi[m,n] = mr * Z0 * k0 * len_edge * len_edge2 *  hankel2(0, k0 * np.sqrt(er * mr) * norm( midpoints[:,m] - midpoints[:,n])) / 4
                 
                 B0[n, m] = B0[m, n]
                 Bi[n, m] = Bi[m, n]
@@ -170,6 +170,10 @@ for n in range(-Nh, Nh + 1):
 plt.plot(angles, np.abs((E_scat_analytical)))
 plt.show()
 
+plt.plot(angles, np.angle((-1j * J)))
+plt.plot(angles, np.angle((E_scat_analytical)))
+plt.show()
+
 
 sz = 300
 a = -0.1
@@ -192,7 +196,7 @@ for i in range(num_points):
     # plt.show()
 
 
-    s += Sm[i] * ((1j * k0 * Z0 * J[i] * G0(r)) * (1 - cylinder_mask) + (1j * k0 * Z0 * J[i] * Gi(r)) * (cylinder_mask))
+    s += Sm[i] * ( k0 * Z0 * J[i] * Gi(r))
 
 
 # s[cylinder_mask] = 0
@@ -201,7 +205,7 @@ plt.imshow(np.abs(s).T, cmap="viridis", extent=[a,b,a,b])
 plt.colorbar()
 plt.show()
 
-plt.imshow(np.angle(s).T, cmap="twilight", extent=[a,b,a,b])
+plt.imshow(np.angle(-s).T, cmap="twilight", extent=[a,b,a,b])
 plt.colorbar()
 plt.show()
 
