@@ -168,6 +168,7 @@ else:
 
 sigma_2D_num = 2 * np.pi * np.abs(F_MoM)**2
 
+
 ## DISPLAY THINGS:
 
 # plt.polar(angles, np.abs(J))
@@ -249,6 +250,25 @@ kr = 1
 
 E_inc_grid = np.exp(-1j * k0 * x)   #incident electric field only at the midpoints of cylinder's boundary segments
 
+E_interior = np.zeros_like(s, dtype=complex)
+
+if scatterer == "dielectric":
+    for i in range(num_points):
+        x_dif = x - midpoints[0, i]
+        y_dif = y - midpoints[1, i]
+
+        r = np.sqrt(x_dif**2 + y_dif**2)
+
+        normal = -midpoints[:, i] / norm(midpoints[:, i])
+
+        dot_normal = (x_dif * normal[0] + y_dif * normal[1]) / r
+
+        kd = k0 * np.sqrt(er * mr)
+
+        dGi_dn = (kd / (4j)) * hankel2(1, kd * r) * dot_normal
+
+        E_interior += Sm[i] * (1j * k0 * Z0 * mr * H_boundary[i] * Gi(r) - E_boundary[i] * dGi_dn)
+
 cylinder_mask = (np.pow(x, 2) + np.pow(y, 2) <= 0.015 ** 2)
 for i in range(num_points):
     x_dif = x - midpoints[0, i]
@@ -259,20 +279,20 @@ for i in range(num_points):
     # plt.imshow(np.abs(r))
     # plt.show()
 
-if scatterer == "PEC":
-    s += -1j *  k0 * Z0 * J[i] * Sm[i] * G0(r)
-elif scatterer == "dielectric":   #Dielectric scatter-field calc
-    # Outward normal vector at segment i
-    normal = -midpoints[:, i] / norm(midpoints[:, i])
+    if scatterer == "PEC":
+        s += -1j *  k0 * Z0 * J[i] * Sm[i] * G0(r)
+    elif scatterer == "dielectric":   #Dielectric scatter-field calc
+        # Outward normal vector at segment i
+        normal = -midpoints[:, i] / norm(midpoints[:, i])
 
-    # Dot product with source to observation direction
-    dot_normal = (x_dif * normal[0] + y_dif * normal[1]) / r 
+        # Dot product with source to observation direction
+        dot_normal = (x_dif * normal[0] + y_dif * normal[1]) / r 
 
-    # Normal derivative of the Green's function
-    dG_dn = (k0 / (4j)) * hankel2(1, k0 * r) * dot_normal
+        # Normal derivative of the Green's function
+        dG_dn = (k0 / (4j)) * hankel2(1, k0 * r) * dot_normal
 
-    # Dielectric scattered electric field
-    s += Sm[i] * (1j * k0 * Z0 * H_boundary[i] * G0(r) - E_boundary[i] * dG_dn)
+        # Dielectric scattered electric field
+        s += Sm[i] * (1j * k0 * Z0 * H_boundary[i] * G0(r) - E_boundary[i] * dG_dn)
 
 
 E_total = E_inc_grid + s  #total E field
@@ -286,9 +306,20 @@ if scatterer == "PEC":
     s_plot[cylinder_mask] = np.nan # np.nan replaces points inside cylinder with "not a value"
 
 elif scatterer == "dielectric":
-    E_total[cylinder_mask] = np.nan
+    E_total[cylinder_mask] = E_interior[cylinder_mask]
     s_plot[cylinder_mask] = np.nan
 
+if scatterer == "dielectric":
+    r_grid = np.sqrt(x**2 + y**2)
+
+    inside_ring = (r_grid >= radius - 0.002) & (r_grid < radius)
+    outside_ring = (r_grid > radius) & (r_grid <= radius + 0.002)
+
+    print("Mean interior |E|:",
+          np.mean(np.abs(E_interior[inside_ring])))
+
+    print("Mean exterior |E|:",
+          np.mean(np.abs(E_total[outside_ring])))
 
 plt.figure()
 
